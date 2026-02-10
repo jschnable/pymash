@@ -311,6 +311,12 @@ pymash fit \
 # This writes my_result.npz (arrays) and my_result.json (summary metadata).
 ```
 
+`pymash fit` now defaults to chunked large-scale execution with
+`--chunk-size 250000`. For very large `J`, it automatically runs a two-stage
+train/apply workflow to avoid out-of-memory failures, then applies the fixed
+prior in chunks. Override with `--chunk-size`, and set `--chunk-size 0` to
+disable chunking.
+
 Load and interpret the outputs in Python:
 
 ```python
@@ -370,7 +376,7 @@ Default: `--cov-methods identity,singletons,equal_effects,simple_het`
 | `pi` | `(K,)` | always | Fitted mixture weights |
 | `grid` | `(G,)` | always | Grid scaling factors |
 | `fitted_u_stack` | `(P, R, R)` | always | Base covariance matrices (before grid) |
-| `posterior_weights` | `(J, K)` | always | Per-effect component responsibilities |
+| `posterior_weights` | `(J, K)` | if available | Per-effect component responsibilities (omitted in chunked apply mode) |
 | `vloglik` | `(J,)` | always | Per-effect log-likelihoods |
 | `lik_matrix` | `(J, K)` | outputlevel >= 4 | Full likelihood matrix |
 | `null_loglik` | scalar | always | Log-likelihood under null model |

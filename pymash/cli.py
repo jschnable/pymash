@@ -11,6 +11,7 @@ from .correlation import estimate_null_correlation_simple
 from .covariances import cov_canonical
 from .data import mash_set_data
 from .mash import mash, mash_1by1
+from .workflow import apply_mash_prior, fit_mash_prior
 
 
 def _guess_delimiter(path: Path) -> str | None:
@@ -97,13 +98,14 @@ def _save_result(out_prefix: str, result, command: str) -> None:
     arrays: dict[str, np.ndarray] = {
         "pi": np.asarray(result.fitted_g.pi, dtype=float),
         "grid": np.asarray(result.fitted_g.grid, dtype=float),
-        "posterior_weights": np.asarray(result.posterior_weights, dtype=float),
         "vloglik": np.asarray(result.vloglik, dtype=float),
         "fitted_u_stack": np.stack(
             [np.asarray(u, dtype=float) for u in result.fitted_g.Ulist],
             axis=0,
         ),
     }
+    if result.posterior_weights is not None:
+        arrays["posterior_weights"] = np.asarray(result.posterior_weights, dtype=float)
 
     optional = {
         "posterior_mean": result.posterior_mean,
@@ -126,8 +128,12 @@ def _save_result(out_prefix: str, result, command: str) -> None:
     meta = {
         "command": command,
         "loglik": float(result.loglik),
-        "n_effects": int(result.posterior_weights.shape[0]),
-        "n_components_active": int(result.posterior_weights.shape[1]),
+        "n_effects": int(result.vloglik.shape[0]),
+        "n_components_active": int(
+            result.posterior_weights.shape[1]
+            if result.posterior_weights is not None
+            else np.sum(np.asarray(result.fitted_g.pi, dtype=float) > 1e-10)
+        ),
         "alpha": float(result.alpha),
         "usepointmass": bool(result.fitted_g.usepointmass),
     }
@@ -148,22 +154,69 @@ def _cmd_fit(args: argparse.Namespace) -> int:
         ulist = cov_canonical(data, methods=methods)
 
     grid = np.asarray(args.grid, dtype=float) if args.grid is not None else None
-    result = mash(
-        data,
-        Ulist=ulist,
-        grid=grid,
-        gridmult=args.gridmult,
-        normalizeU=not args.no_normalize_u,
-        usepointmass=not args.no_pointmass,
-        prior=args.prior,
-        nullweight=args.nullweight,
-        optmethod=args.optmethod,
-        pi_thresh=args.pi_thresh,
-        posterior_samples=args.posterior_samples,
-        seed=args.seed,
-        outputlevel=args.outputlevel,
-        output_lfdr=args.output_lfdr,
+    chunk_size = args.chunk_size
+    common_kwargs = {
+        "grid": grid,
+        "gridmult": args.gridmult,
+        "normalizeU": not args.no_normalize_u,
+        "usepointmass": not args.no_pointmass,
+        "prior": args.prior,
+        "nullweight": args.nullweight,
+        "optmethod": args.optmethod,
+        "pi_thresh": args.pi_thresh,
+        "posterior_samples": args.posterior_samples,
+        "seed": args.seed,
+        "outputlevel": args.outputlevel,
+        "output_lfdr": args.output_lfdr,
+        "chunk_size": chunk_size,
+    }
+
+    # For very large datasets, default to train/apply to avoid OOM.
+    use_chunked_train_apply = (
+        chunk_size is not None
+        and chunk_size > 0
+        and data.n_effects > int(chunk_size)
+        and args.posterior_samples == 0
+        and args.outputlevel <= 2
     )
+    if use_chunked_train_apply:
+        n_train = int(args.train_size) if args.train_size is not None else int(chunk_size)
+        n_train = max(1, min(n_train, data.n_effects))
+
+        train_kwargs = dict(common_kwargs)
+        train_kwargs["outputlevel"] = 1
+        train_kwargs["posterior_samples"] = 0
+        train_kwargs["chunk_size"] = None
+
+        fitted_g, _, _ = fit_mash_prior(
+            data,
+            ulist,
+            n_train=n_train,
+            select_method=args.select_method,
+            select_seed=args.seed,
+            background_fraction=args.background_fraction,
+            mash_kwargs=train_kwargs,
+        )
+        apply_kwargs = {
+            "pi_thresh": args.pi_thresh,
+            "posterior_samples": 0,
+            "seed": args.seed,
+            "outputlevel": args.outputlevel,
+            "output_lfdr": args.output_lfdr,
+            "chunk_size": chunk_size,
+        }
+        result = apply_mash_prior(
+            data,
+            fitted_g,
+            chunk_size=chunk_size,
+            mash_kwargs=apply_kwargs,
+        )
+    else:
+        result = mash(
+            data,
+            Ulist=ulist,
+            **common_kwargs,
+        )
     _save_result(args.out, result, command="fit")
     return 0
 
@@ -232,6 +285,37 @@ def build_parser() -> argparse.ArgumentParser:
     fit.add_argument("--seed", type=int, default=123, help="Random seed.")
     fit.add_argument("--outputlevel", type=int, default=2, choices=[1, 2, 3, 4], help="Output detail level.")
     fit.add_argument("--output-lfdr", action="store_true", help="Compute lfdr output.")
+    fit.add_argument(
+        "--chunk-size",
+        type=int,
+        default=250000,
+        help=(
+            "Chunk size for large runs (default: 250000). "
+            "Set <=0 to disable chunking."
+        ),
+    )
+    fit.add_argument(
+        "--train-size",
+        type=int,
+        default=None,
+        help=(
+            "Training subset size for automatic two-stage runs when J > chunk-size. "
+            "Default: chunk-size."
+        ),
+    )
+    fit.add_argument(
+        "--select-method",
+        type=str,
+        default="topz_random",
+        choices=["random", "topz_random"],
+        help="Subset selection method for automatic two-stage runs.",
+    )
+    fit.add_argument(
+        "--background-fraction",
+        type=float,
+        default=0.2,
+        help="Random-background fraction for topz_random subset selection.",
+    )
     fit.set_defaults(func=_cmd_fit)
 
     ob = sub.add_parser("onebyone", help="Run mash_1by1 baseline and save result arrays.")

@@ -192,10 +192,12 @@ def apply_mash_prior(
     data: MashData,
     fitted_g: FittedG,
     *,
+    chunk_size: int | None = 250_000,
     mash_kwargs: dict | None = None,
 ) -> MashResult:
     """Apply a pre-fitted mash prior to full data."""
     kwargs = dict(mash_kwargs or {})
+    kwargs.setdefault("chunk_size", chunk_size)
     return mash(data, g=fitted_g, fixg=True, **kwargs)
 
 
@@ -236,6 +238,7 @@ def apply_mash_prior_chunked(
         raise ValueError("chunk_size must be positive")
 
     kwargs = dict(mash_kwargs or {})
+    kwargs.setdefault("chunk_size", None)
     if "g" in kwargs or "fixg" in kwargs:
         raise ValueError("mash_kwargs must not include g or fixg")
 
@@ -330,6 +333,7 @@ def mash_train_apply(
     select_seed: int = 123,
     background_fraction: float = 0.2,
     train_mash_kwargs: dict | None = None,
+    apply_chunk_size: int | None = 250_000,
     apply_mash_kwargs: dict | None = None,
 ) -> TrainApplyResult:
     """Two-stage workflow: fit prior on subset, apply to full data."""
@@ -346,6 +350,7 @@ def mash_train_apply(
     apply_result = apply_mash_prior(
         data,
         fitted_g,
+        chunk_size=apply_chunk_size,
         mash_kwargs=apply_mash_kwargs,
     )
     return TrainApplyResult(

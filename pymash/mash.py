@@ -86,8 +86,9 @@ class MashResult:
         Per-effect alternative log-likelihoods (if ``usepointmass=True``).
     fitted_g : FittedG
         The fitted prior distribution.
-    posterior_weights : np.ndarray
+    posterior_weights : np.ndarray or None
         Posterior mixture weights, shape ``(J, K_active)``.
+        May be ``None`` when results are computed via chunked apply mode.
     alpha : float
         The alpha parameter used for effect/LFSR scaling.
     posterior_cov : np.ndarray or None
@@ -108,7 +109,7 @@ class MashResult:
     null_loglik: np.ndarray | None
     alt_loglik: np.ndarray | None
     fitted_g: FittedG
-    posterior_weights: np.ndarray
+    posterior_weights: np.ndarray | None
     alpha: float
     posterior_cov: np.ndarray | None = None
     posterior_samples: np.ndarray | None = None
@@ -178,6 +179,36 @@ def compute_alt_loglik_from_matrix_and_pi(
     with np.errstate(divide="ignore"):
         log_mix = np.log(mix)
     return logsumexp(lm.loglik_matrix[:, 1:] + log_mix[None, :], axis=1) + lm.lfactors - np.sum(np.log(Shat_alpha), axis=1)
+
+
+def _subset_mash_data_slice(data: MashData, start: int, stop: int) -> MashData:
+    if start < 0 or stop > data.n_effects or start >= stop:
+        raise ValueError("invalid slice bounds")
+
+    def _slice_optional_rows(arr: np.ndarray | None) -> np.ndarray | None:
+        if arr is None:
+            return None
+        out = np.asarray(arr)
+        if out.ndim >= 1 and out.shape[0] == data.n_effects:
+            return np.array(out[start:stop], copy=True)
+        return np.array(out, copy=True)
+
+    if data.common_V:
+        v_sub = np.array(data.V, copy=True)
+    else:
+        v_sub = np.array(data.V[start:stop], copy=True)
+
+    return MashData(
+        Bhat=np.array(data.Bhat[start:stop], copy=True),
+        Shat=np.array(data.Shat[start:stop], copy=True),
+        Shat_alpha=np.array(data.Shat_alpha[start:stop], copy=True),
+        V=v_sub,
+        common_V=data.common_V,
+        alpha=data.alpha,
+        L=_slice_optional_rows(data.L),
+        Shat_orig=_slice_optional_rows(data.Shat_orig),
+        LSVSLt=_slice_optional_rows(data.LSVSLt),
+    )
 
 
 def _validate_ulist(Ulist: list[np.ndarray], R: int) -> None:
@@ -322,6 +353,7 @@ def mash(
     seed: int = 123,
     outputlevel: int = 2,
     output_lfdr: bool = False,
+    chunk_size: int | None = 250_000,
 ) -> MashResult:
     """Fit a multivariate adaptive shrinkage (mash) model.
 
@@ -391,6 +423,10 @@ def mash(
         - **3**: Like 2 plus full posterior covariance matrices per effect.
           Needed for ``E_V`` in null-correlation EM.
         - **4**: Like 2 plus the raw log-likelihood matrix (J x P).
+    chunk_size : int or None
+        Chunk size used when applying a fixed prior (``fixg=True``).
+        When set (default ``250000``), large fixed-``g`` runs are processed
+        in chunks to reduce peak memory. Set to ``None`` or ``<=0`` to disable.
 
     Returns
     -------
@@ -432,6 +468,83 @@ def mash(
         ulist_raw = normalize_Ulist(ulist_raw)
 
     _validate_ulist(ulist_raw, data.n_conditions)
+
+    if (
+        fixg
+        and chunk_size is not None
+        and chunk_size > 0
+        and data.n_effects > int(chunk_size)
+        and outputlevel <= 2
+        and posterior_samples == 0
+    ):
+        if g is None:
+            raise ValueError("cannot fix g if g is not supplied")
+        J = data.n_effects
+        A_use = np.eye(data.n_conditions, dtype=float) if A is None else np.asarray(A, dtype=float)
+        Q = int(A_use.shape[0])
+        pm = np.empty((J, Q), dtype=float) if outputlevel > 1 else None
+        psd = np.empty((J, Q), dtype=float) if outputlevel > 1 else None
+        lfsr = np.empty((J, Q), dtype=float) if outputlevel > 1 else None
+        lfdr = np.empty((J, Q), dtype=float) if outputlevel > 1 and output_lfdr else None
+        neg = np.empty((J, Q), dtype=float) if outputlevel > 1 else None
+        vloglik = np.empty(J, dtype=float)
+        null_loglik = np.empty(J, dtype=float) if g.usepointmass else None
+        alt_loglik = np.empty(J, dtype=float) if g.usepointmass else None
+        total_loglik = 0.0
+
+        for start in range(0, J, int(chunk_size)):
+            stop = min(start + int(chunk_size), J)
+            chunk_data = _subset_mash_data_slice(data, start, stop)
+            chunk = mash(
+                chunk_data,
+                g=g,
+                fixg=True,
+                pi_thresh=pi_thresh,
+                A=A,
+                posterior_samples=0,
+                seed=seed,
+                outputlevel=outputlevel,
+                output_lfdr=output_lfdr,
+                chunk_size=None,
+            )
+            vloglik[start:stop] = chunk.vloglik
+            total_loglik += float(chunk.loglik)
+
+            if null_loglik is not None and chunk.null_loglik is not None:
+                null_loglik[start:stop] = chunk.null_loglik
+            if alt_loglik is not None and chunk.alt_loglik is not None:
+                alt_loglik[start:stop] = chunk.alt_loglik
+
+            if outputlevel > 1:
+                assert pm is not None and psd is not None and lfsr is not None and neg is not None
+                assert chunk.posterior_mean is not None
+                assert chunk.posterior_sd is not None
+                assert chunk.lfsr is not None
+                assert chunk.negative_prob is not None
+                pm[start:stop, :] = chunk.posterior_mean
+                psd[start:stop, :] = chunk.posterior_sd
+                lfsr[start:stop, :] = chunk.lfsr
+                neg[start:stop, :] = chunk.negative_prob
+                if lfdr is not None and chunk.lfdr is not None:
+                    lfdr[start:stop, :] = chunk.lfdr
+
+        return MashResult(
+            posterior_mean=pm,
+            posterior_sd=psd,
+            lfsr=lfsr,
+            lfdr=lfdr,
+            negative_prob=neg,
+            loglik=float(total_loglik),
+            vloglik=vloglik,
+            null_loglik=null_loglik,
+            alt_loglik=alt_loglik,
+            fitted_g=g,
+            posterior_weights=None,
+            alpha=data.alpha,
+            posterior_cov=None,
+            posterior_samples=None,
+            lik_matrix=None,
+        )
 
     xUlist = expand_cov(ulist_raw, grid, usepointmass=usepointmass)
     use_common_lik = data.common_V and data.is_common_cov_shat()
@@ -552,6 +665,7 @@ def mash_compute_posterior_matrices(
     output_posterior_cov: bool = False,
     posterior_samples: int = 0,
     seed: int = 123,
+    chunk_size: int | None = 250_000,
 ) -> PosteriorMatrices:
     """Compute posterior matrices for new data using a fitted model.
 
@@ -577,6 +691,10 @@ def mash_compute_posterior_matrices(
         Number of posterior samples to draw (0 for none).
     seed : int
         Random seed for posterior sampling.
+    chunk_size : int or None
+        Chunk size for large applications. When set (default ``250000``),
+        posteriors are computed in chunks when possible. Set to ``None`` or
+        ``<=0`` to disable.
 
     Returns
     -------
@@ -596,6 +714,51 @@ def mash_compute_posterior_matrices(
             raise ValueError("The alpha in data does not match the one used to fit mash")
     else:
         fitted = g
+
+    if (
+        chunk_size is not None
+        and chunk_size > 0
+        and data.n_effects > int(chunk_size)
+        and (not output_posterior_cov)
+        and posterior_samples == 0
+    ):
+        J = data.n_effects
+        A_use = np.eye(data.n_conditions, dtype=float) if A is None else np.asarray(A, dtype=float)
+        Q = int(A_use.shape[0])
+        pm = np.empty((J, Q), dtype=float)
+        psd = np.empty((J, Q), dtype=float)
+        neg = np.empty((J, Q), dtype=float)
+        zero = np.empty((J, Q), dtype=float)
+        lfsr = np.empty((J, Q), dtype=float)
+        for start in range(0, J, int(chunk_size)):
+            stop = min(start + int(chunk_size), J)
+            chunk_data = _subset_mash_data_slice(data, start, stop)
+            chunk = mash_compute_posterior_matrices(
+                fitted,
+                chunk_data,
+                pi_thresh=pi_thresh,
+                A=A,
+                output_posterior_cov=False,
+                posterior_samples=0,
+                seed=seed,
+                chunk_size=None,
+            )
+            pm[start:stop, :] = chunk.posterior_mean
+            psd[start:stop, :] = chunk.posterior_sd
+            neg[start:stop, :] = chunk.negative_prob
+            zero[start:stop, :] = chunk.zero_prob
+            lfsr[start:stop, :] = chunk.lfsr
+
+        return PosteriorMatrices(
+            posterior_mean=pm,
+            posterior_sd=psd,
+            negative_prob=neg,
+            zero_prob=zero,
+            lfsr=lfsr,
+            lfdr=zero,
+            posterior_cov=None,
+            posterior_samples=None,
+        )
 
     xUlist = expand_cov(fitted.Ulist, fitted.grid, fitted.usepointmass)
     use_common_lik = data.common_V and data.is_common_cov_shat()
