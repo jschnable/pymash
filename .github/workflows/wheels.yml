@@ -37,6 +37,13 @@ jobs:
         env:
           CIBW_OUTPUT_DIR: wheelhouse
 
+      - name: Smoke test built wheel
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy scipy
+          python -m pip install --force-reinstall --no-index --find-links wheelhouse pymash
+          python -c "import numpy as np, pymash as mash; sim=mash.simple_sims(nsamp=5, ncond=3, err_sd=1.0, seed=1); data=mash.mash_set_data(sim['Bhat'], sim['Shat']); U=mash.cov_canonical(data); res=mash.mash(data, Ulist=U, grid=np.array([1.0]), optmethod='auto', outputlevel=1); assert np.isfinite(res.loglik); print('wheel smoke test passed')"
+
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@v4
         with:

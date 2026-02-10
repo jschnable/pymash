@@ -474,6 +474,9 @@ Cross-platform wheel builds are configured via `cibuildwheel` and GitHub Actions
 
 - `.github/workflows/wheels.yml`
 
+That workflow also performs a smoke test by installing the just-built wheel
+and running a minimal `mash()` fit on each platform.
+
 ## PyPI Release
 
 Tag-driven release publishing (wheels + sdist) is configured in:
