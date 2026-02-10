@@ -28,7 +28,7 @@ mash_1by1
     Simple condition-by-condition baseline (no cross-condition shrinkage).
 mash_compute_posterior_matrices
     Compute posteriors for new data using a previously fitted model.
-fit_mash_prior, apply_mash_prior, mash_train_apply
+fit_mash_prior, apply_mash_prior, apply_mash_prior_chunked, mash_train_apply
     Two-stage train/apply helpers for large-scale workflows.
 
 Result extraction
@@ -80,7 +80,15 @@ from .data import MashData, contrast_matrix, mash_set_data, mash_update_data
 from .correlation import estimate_null_correlation_simple, mash_estimate_corr_em
 from .covariances import cov_canonical, cov_ed, cov_pca, cov_udi
 from .mash import FittedG, MashResult, mash, mash_compute_posterior_matrices, mash_1by1
-from .workflow import TrainApplyResult, apply_mash_prior, fit_mash_prior, mash_train_apply, select_training_effects
+from .workflow import (
+    ChunkedApplyResult,
+    TrainApplyResult,
+    apply_mash_prior,
+    apply_mash_prior_chunked,
+    fit_mash_prior,
+    mash_train_apply,
+    select_training_effects,
+)
 from .results import (
     get_estimated_pi,
     get_lfdr,
@@ -113,6 +121,7 @@ __all__ = [
     "FittedG",
     "MashResult",
     "TrainApplyResult",
+    "ChunkedApplyResult",
     "mash_set_data",
     "mash_update_data",
     "contrast_matrix",
@@ -128,6 +137,7 @@ __all__ = [
     "select_training_effects",
     "fit_mash_prior",
     "apply_mash_prior",
+    "apply_mash_prior_chunked",
     "mash_train_apply",
     "get_log10bf",
     "get_significant_results",

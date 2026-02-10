@@ -50,31 +50,43 @@ lfsr = mash.get_lfsr(result)   # Local false sign rates (J x R)
 sig = mash.get_significant_results(result, thresh=0.05)
 ```
 
-> **The Crucial Rule:** Always fit the mash model on *all* tests (or a large
-> *random* subset) — never on only the significant ones. Fitting on a
-> significance-selected subset biases the mixture-weight estimates and
-> invalidates the posterior calculations. Use `mash_1by1()` and
-> `get_significant_results()` to identify strong signals for covariance
-> learning, but always fit `mash()` on the random/full set.
+> **The Crucial Rule:** Keep covariance learning and prior-weight learning
+> separate. Use strong signals to learn data-driven covariance matrices
+> (`cov_pca`, `cov_ed`), but fit mixture weights (`pi`) on all tests or a
+> large random subset. You can also use `select_method="topz_random"` to blend
+> top-|z| effects with random background when `n_train` is small.
 
 ### Two-Stage Train/Apply Workflow (Recommended for very large GWAS/eQTL)
 
-For large studies, you can fit the prior on a manageable subset and then
-apply the fixed prior genome-wide:
+For large studies, a robust two-stage pattern is:
+
+1. Learn data-driven covariance matrices on strong signals.
+2. Fit `g` (mixture weights) on a random or mixed (`topz_random`) subset.
+3. Apply the fixed `g` genome-wide.
 
 ```python
 import numpy as np
 import pymash as mash
 
 data = mash.mash_set_data(Bhat, Shat, alpha=1)
-U_c = mash.cov_canonical(data)
 
-# Stage 1: train g on a random subset
+# Stage 0: learn covariance patterns on strong effects
+m1 = mash.mash_1by1(data)
+strong_idx = mash.get_significant_results(m1, thresh=0.05)
+data_strong = mash.mash_set_data(Bhat[strong_idx], Shat[strong_idx], alpha=1)
+
+U_c = mash.cov_canonical(data)
+U_pca = mash.cov_pca(data_strong, npc=5)
+U_ed = mash.cov_ed(data_strong, U_pca)
+U_all = {**U_c, **U_ed}
+
+# Stage 1: train g on a manageable subset
 workflow = mash.mash_train_apply(
     data,
-    U_c,
+    U_all,
     n_train=50000,                         # choose based on compute budget
-    select_method="random",                # unbiased default
+    select_method="topz_random",           # strong + random background
+    background_fraction=0.2,               # keep random background for calibration
     select_seed=1,
     train_mash_kwargs={"grid": np.array([0.5, 1.0]), "outputlevel": 1},
     apply_mash_kwargs={"outputlevel": 2, "output_lfdr": True},
@@ -87,6 +99,22 @@ fitted_g = workflow.train_result.fitted_g # reusable prior
 
 This gives the same statistical model (`mash(..., g=fitted_g, fixg=True)`)
 while making large analyses easier to scale and reproduce.
+
+For very large `J`, you can apply the fitted prior in chunks to reduce
+peak memory:
+
+```python
+chunked = mash.apply_mash_prior_chunked(
+    data,
+    fitted_g,
+    chunk_size=250_000,
+    mash_kwargs={"outputlevel": 2, "output_lfdr": False},
+    out_prefix="results/gwas40",  # writes results/gwas40.<name>.npy
+)
+
+pm = chunked.arrays["posterior_mean"]  # memmap if out_prefix is set
+lfsr = chunked.arrays["lfsr"]
+```
 
 ## Interpreting Results
 
@@ -381,9 +409,10 @@ core fitting function (`mash()`) requires this extension. To fix:
 **Fitting on significant markers only:**
 The most common mistake. If you select markers by significance and then
 fit mash on that subset, the mixture weights will be wrong and
-posteriors will be miscalibrated. Always fit on a random subset or all
-markers. Use strong signals only for covariance learning (`cov_pca`,
-`cov_ed`).
+posteriors will be miscalibrated. Fit on all markers, a random subset,
+or a mixed topz+random subset (`select_method="topz_random"`). Do not
+fit on only significance-selected markers. Use strong signals for
+covariance learning (`cov_pca`, `cov_ed`).
 
 **Too few conditions (R < 3):**
 mash is designed for multivariate problems. With only 2 conditions,
@@ -413,6 +442,9 @@ with `gridmult=1.25`.
 **Model fitting:**
 `mash` (main entry point), `mash_1by1` (screening step),
 `mash_compute_posterior_matrices` (apply fitted model to new data)
+
+**Large-scale workflow:**
+`fit_mash_prior`, `apply_mash_prior`, `apply_mash_prior_chunked`, `mash_train_apply`
 
 **Result extraction:**
 `get_pm`, `get_psd`, `get_lfsr`, `get_lfdr`,

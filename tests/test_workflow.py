@@ -6,7 +6,13 @@ from pymash.covariances import cov_canonical
 from pymash.data import mash_set_data
 from pymash.mash import mash
 from pymash.simulations import simple_sims
-from pymash.workflow import apply_mash_prior, fit_mash_prior, mash_train_apply, select_training_effects
+from pymash.workflow import (
+    apply_mash_prior,
+    apply_mash_prior_chunked,
+    fit_mash_prior,
+    mash_train_apply,
+    select_training_effects,
+)
 
 
 def test_select_training_effects_random_deterministic():
@@ -99,3 +105,64 @@ def test_mash_train_apply_effect_specific_v_runs():
     assert out.train_indices.shape == (12,)
     assert out.apply_result.posterior_mean is not None
     assert out.apply_result.posterior_mean.shape == sim["Bhat"].shape
+
+
+def test_apply_mash_prior_chunked_matches_non_chunked():
+    sim = simple_sims(nsamp=16, ncond=4, err_sd=0.7, seed=205)
+    data = mash_set_data(sim["Bhat"], sim["Shat"])
+    U = cov_canonical(data)
+    train_idx = np.arange(0, data.n_effects, 2)
+
+    g_fit, _, _ = fit_mash_prior(
+        data,
+        U,
+        train_indices=train_idx,
+        mash_kwargs={"grid": np.array([1.0]), "prior": "uniform", "optmethod": "mixsqp"},
+    )
+    full = apply_mash_prior(data, g_fit, mash_kwargs={"outputlevel": 2, "output_lfdr": True})
+    chunked = apply_mash_prior_chunked(
+        data,
+        g_fit,
+        chunk_size=17,
+        mash_kwargs={"outputlevel": 2, "output_lfdr": True},
+    )
+
+    assert chunked.n_effects == data.n_effects
+    assert chunked.n_conditions == data.n_conditions
+    assert np.isclose(chunked.loglik, full.loglik)
+
+    for key in ("vloglik", "posterior_mean", "posterior_sd", "lfsr", "lfdr", "negative_prob", "null_loglik", "alt_loglik"):
+        val_full = getattr(full, key)
+        if val_full is None:
+            continue
+        assert key in chunked.arrays
+        assert np.allclose(chunked.arrays[key], val_full, atol=1e-10, rtol=1e-10)
+
+
+def test_apply_mash_prior_chunked_writes_files(tmp_path):
+    sim = simple_sims(nsamp=10, ncond=3, err_sd=0.8, seed=206)
+    data = mash_set_data(sim["Bhat"], sim["Shat"])
+    U = cov_canonical(data)
+    g_fit, _, _ = fit_mash_prior(
+        data,
+        U,
+        n_train=24,
+        select_method="topz_random",
+        mash_kwargs={"grid": np.array([1.0]), "optmethod": "auto"},
+    )
+
+    out_prefix = tmp_path / "chunked_apply"
+    out = apply_mash_prior_chunked(
+        data,
+        g_fit,
+        chunk_size=11,
+        mash_kwargs={"outputlevel": 2, "output_lfdr": False},
+        out_prefix=out_prefix,
+    )
+
+    assert out.output_paths
+    assert "posterior_mean" in out.output_paths
+    pm_path = out.output_paths["posterior_mean"]
+    loaded_pm = np.load(pm_path, mmap_mode="r")
+    assert loaded_pm.shape == (data.n_effects, data.n_conditions)
+    assert np.allclose(loaded_pm, out.arrays["posterior_mean"], atol=1e-10, rtol=1e-10)
