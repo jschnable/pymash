@@ -430,6 +430,12 @@ with `gridmult=1.25`.
 `pymash.covariances.expand_cov`, `scale_cov`, `normalize_Ulist`;
 `pymash.likelihoods.calc_lik_matrix`, `calc_relative_lik_matrix`
 
+## Test CI
+
+Push/PR test runs are configured in:
+
+- `.github/workflows/ci.yml`
+
 ## Wheel CI
 
 Cross-platform wheel builds are configured via `cibuildwheel` and GitHub Actions in:

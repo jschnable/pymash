@@ -5,13 +5,37 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pymash"
 version = "0.1.0"
-description = "Python implementation of mashr"
+description = "Python implementation of multivariate adaptive shrinkage (mash)"
 readme = "README.md"
 requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [
+  { name = "pymash contributors" },
+]
+keywords = ["mash", "genomics", "gwas", "eqtl", "multivariate", "bayesian"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+]
 dependencies = [
   "numpy>=1.24",
   "scipy>=1.10",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jschnable/pymash"
+Repository = "https://github.com/jschnable/pymash"
+Issues = "https://github.com/jschnable/pymash/issues"
 
 [project.scripts]
 pymash = "pymash.cli:main"

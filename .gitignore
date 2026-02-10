@@ -3,15 +3,31 @@ __pycache__/
 *.py[cod]
 *.so
 *.dylib
+*.pyd
 
 # Packaging artifacts
 build/
 dist/
 *.egg-info/
+pip-wheel-metadata/
 
 # Test/cache artifacts
 .pytest_cache/
 .coverage
+.coverage.*
+htmlcov/
 
 # Local environments
 .venv/
+venv/
+env/
+
+# Type/lint/tool caches
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS/editor noise
+.DS_Store
