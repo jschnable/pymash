@@ -1,0 +1,17 @@
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.so
+*.dylib
+
+# Packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Test/cache artifacts
+.pytest_cache/
+.coverage
+
+# Local environments
+.venv/

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel", "pybind11>=2.11"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pymash"
+version = "0.1.0"
+description = "Python implementation of mashr"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+]
+
+[project.scripts]
+pymash = "pymash.cli:main"
+
+[project.optional-dependencies]
+plot = ["matplotlib>=3.5"]
+test = [
+  "pytest>=8",
+  "matplotlib>=3.5",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["pymash*"]
+
+[tool.cibuildwheel]
+build = "cp39-* cp310-* cp311-* cp312-* cp313-*"
+skip = "pp* *-musllinux_*"
+test-requires = [
+  "pytest>=8",
+  "matplotlib>=3.5",
+]
+test-command = "pytest {project}/tests -q"
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64", "aarch64"]
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.14", PYMASH_OPENMP_DARWIN = "1" }
