@@ -100,6 +100,10 @@ fitted_g = workflow.train_result.fitted_g # reusable prior
 This gives the same statistical model (`mash(..., g=fitted_g, fixg=True)`)
 while making large analyses easier to scale and reproduce.
 
+By default, `mash()` uses `chunk_size=250000`. For very large `J`, this
+automatically switches to a two-stage train/apply execution to avoid OOM
+while preserving the same workflow pattern.
+
 For very large `J`, you can apply the fitted prior in chunks to reduce
 peak memory:
 

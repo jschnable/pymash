@@ -211,6 +211,39 @@ def _subset_mash_data_slice(data: MashData, start: int, stop: int) -> MashData:
     )
 
 
+def _subset_mash_data_indices(data: MashData, indices: np.ndarray) -> MashData:
+    idx = np.asarray(indices, dtype=int)
+    if idx.ndim != 1 or idx.size == 0:
+        raise ValueError("indices must be a non-empty 1D integer array")
+    if np.any(idx < 0) or np.any(idx >= data.n_effects):
+        raise ValueError("indices out of bounds")
+
+    def _subset_optional_rows(arr: np.ndarray | None) -> np.ndarray | None:
+        if arr is None:
+            return None
+        out = np.asarray(arr)
+        if out.ndim >= 1 and out.shape[0] == data.n_effects:
+            return np.array(out[idx], copy=True)
+        return np.array(out, copy=True)
+
+    if data.common_V:
+        v_sub = np.array(data.V, copy=True)
+    else:
+        v_sub = np.array(data.V[idx], copy=True)
+
+    return MashData(
+        Bhat=np.array(data.Bhat[idx], copy=True),
+        Shat=np.array(data.Shat[idx], copy=True),
+        Shat_alpha=np.array(data.Shat_alpha[idx], copy=True),
+        V=v_sub,
+        common_V=data.common_V,
+        alpha=data.alpha,
+        L=_subset_optional_rows(data.L),
+        Shat_orig=_subset_optional_rows(data.Shat_orig),
+        LSVSLt=_subset_optional_rows(data.LSVSLt),
+    )
+
+
 def _validate_ulist(Ulist: list[np.ndarray], R: int) -> None:
     for i, U in enumerate(Ulist):
         if U.shape != (R, R):
@@ -424,9 +457,14 @@ def mash(
           Needed for ``E_V`` in null-correlation EM.
         - **4**: Like 2 plus the raw log-likelihood matrix (J x P).
     chunk_size : int or None
-        Chunk size used when applying a fixed prior (``fixg=True``).
-        When set (default ``250000``), large fixed-``g`` runs are processed
-        in chunks to reduce peak memory. Set to ``None`` or ``<=0`` to disable.
+        Chunk size for large-scale runs (default ``250000``). When set:
+
+        - fixed-``g`` runs are applied in chunks to reduce peak memory.
+        - non-fixed runs with very large ``J`` automatically use a two-stage
+          train/apply strategy (train on ``chunk_size`` effects, then apply
+          the fitted prior in chunks).
+
+        Set to ``None`` or ``<=0`` to disable chunked/two-stage behavior.
 
     Returns
     -------
@@ -468,6 +506,69 @@ def mash(
         ulist_raw = normalize_Ulist(ulist_raw)
 
     _validate_ulist(ulist_raw, data.n_conditions)
+
+    if (
+        (not fixg)
+        and chunk_size is not None
+        and chunk_size > 0
+        and data.n_effects > int(chunk_size)
+        and outputlevel <= 2
+        and posterior_samples == 0
+    ):
+        n_train = int(chunk_size)
+        n_train = max(1, min(n_train, data.n_effects))
+        background_fraction = 0.2
+        with np.errstate(divide="ignore", invalid="ignore"):
+            z = np.abs(data.Bhat) / np.maximum(data.Shat, np.finfo(float).tiny)
+        z = np.where(np.isfinite(z), z, 0.0)
+        score = np.max(z, axis=1)
+        n_bg = int(round(background_fraction * n_train))
+        n_top = max(0, n_train - n_bg)
+        order = np.argsort(-score)
+        top_idx = order[:n_top]
+        used = np.zeros(data.n_effects, dtype=bool)
+        used[top_idx] = True
+        if n_bg > 0:
+            pool = np.where(~used)[0]
+            rng = np.random.default_rng(seed)
+            bg_idx = rng.choice(pool, size=n_bg, replace=False)
+            train_idx = np.sort(np.concatenate([top_idx, bg_idx]).astype(int))
+        else:
+            train_idx = np.sort(top_idx.astype(int))
+
+        data_train = _subset_mash_data_indices(data, train_idx)
+        trained = mash(
+            data_train,
+            Ulist=ulist_raw,
+            gridmult=gridmult,
+            grid=grid,
+            normalizeU=False,
+            usepointmass=usepointmass,
+            fixg=False,
+            prior=prior,
+            nullweight=nullweight,
+            optmethod=optmethod,
+            control=control,
+            pi_thresh=pi_thresh,
+            A=None,
+            posterior_samples=0,
+            seed=seed,
+            outputlevel=1,
+            output_lfdr=False,
+            chunk_size=None,
+        )
+        return mash(
+            data,
+            g=trained.fitted_g,
+            fixg=True,
+            pi_thresh=pi_thresh,
+            A=A,
+            posterior_samples=0,
+            seed=seed,
+            outputlevel=outputlevel,
+            output_lfdr=output_lfdr,
+            chunk_size=chunk_size,
+        )
 
     if (
         fixg

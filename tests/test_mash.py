@@ -85,6 +85,26 @@ def test_mash_compute_posterior_matrices_chunked_matches_non_chunked():
     assert np.allclose(chunked.lfsr, full.lfsr, atol=1e-10, rtol=1e-10)
 
 
+def test_mash_large_auto_two_stage_runs_with_chunk_size():
+    sim = simple_sims(nsamp=12, ncond=3, err_sd=0.7, seed=23)
+    data = mash_set_data(sim["Bhat"], sim["Shat"])
+    U = cov_canonical(data)
+
+    out = mash(
+        data,
+        Ulist=U,
+        grid=np.array([1.0]),
+        outputlevel=2,
+        chunk_size=7,
+        output_lfdr=True,
+    )
+
+    assert out.posterior_mean is not None
+    assert out.posterior_mean.shape == sim["Bhat"].shape
+    assert out.posterior_weights is None
+    assert np.isfinite(out.loglik)
+
+
 def test_mash_fails_fast_when_cpp_backend_missing(monkeypatch):
     mash_mod = importlib.import_module("pymash.mash")
     sim = simple_sims(nsamp=8, ncond=3, err_sd=0.5, seed=5)
