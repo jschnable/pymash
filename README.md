@@ -25,7 +25,9 @@ The inputs are two matrices: **Bhat** (effect sizes, J markers x R conditions)
 and **Shat** (standard errors, same shape). The outputs are shrunken posterior
 means, posterior SDs, and lfsr for every marker in every condition.
 
-See: Urbut, Wang, Carbonetto & Stephens (2019). *Nature Genetics* 51, 187–195.
+See: Urbut, S. M., Wang, G., Carbonetto, P., & Stephens, M. (2019). Flexible statistical methods for estimating and testing effects in genomic studies with multiple conditions. Nature genetics. doi: https://doi.org/10.1038/s41588-018-0268-8
+
+Note: this is an independent reimplementation. Any errors are mine and not those of the authors of Urbut et al.
 
 ## Quick Start
 
