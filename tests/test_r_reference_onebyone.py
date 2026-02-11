@@ -11,6 +11,10 @@ import pytest
 from pymash.data import mash_set_data
 from pymash.mash import mash_1by1
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = PROJECT_ROOT.parent
+R_SCRIPT = PROJECT_ROOT / "tests" / "r" / "run_mash1by1_reference.R"
+
 
 def _has_r_mashr() -> bool:
     if shutil.which("Rscript") is None:
@@ -26,8 +30,6 @@ HAS_R_MASHR = _has_r_mashr()
 @pytest.mark.skipif(not HAS_R_MASHR, reason="R package 'mashr' is required for mash_1by1 reference test")
 def test_mash_1by1_approximately_matches_r() -> None:
     alpha = 0.0
-    repo_root = Path(__file__).resolve().parents[2]
-    r_script = repo_root / "pymash" / "tests" / "r" / "run_mash1by1_reference.R"
 
     rng = np.random.default_rng(2027)
     J, R = 220, 4
@@ -44,7 +46,7 @@ def test_mash_1by1_approximately_matches_r() -> None:
         np.savetxt(shat_csv, shat, delimiter=",")
 
         subprocess.run(
-            ["Rscript", str(r_script), str(repo_root), str(bhat_csv), str(shat_csv), str(alpha), str(out_dir)],
+            ["Rscript", str(R_SCRIPT), str(REPO_ROOT), str(bhat_csv), str(shat_csv), str(alpha), str(out_dir)],
             check=True,
             capture_output=True,
             text=True,

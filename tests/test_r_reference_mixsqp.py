@@ -13,11 +13,26 @@ from pymash.data import mash_set_data
 from pymash.mash import mash
 
 
-@pytest.mark.skipif(shutil.which("Rscript") is None, reason="Rscript is required for R reference comparison")
-def test_end_to_end_mixsqp_matches_r_mixsqp_approximately():
-    repo_root = Path(__file__).resolve().parents[2]
-    r_script = repo_root / "pymash" / "tests" / "r" / "run_mashr_reference.R"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = PROJECT_ROOT.parent
+R_SCRIPT = PROJECT_ROOT / "tests" / "r" / "run_mashr_reference.R"
 
+
+def _has_r_mashr() -> bool:
+    cmd = ["Rscript", "-e", "cat(as.integer(requireNamespace('mashr', quietly=TRUE)))"]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    return proc.returncode == 0 and proc.stdout.strip() == "1"
+
+
+HAS_MASHR_SOURCE = (REPO_ROOT / "mashr" / "R").is_dir()
+HAS_R_REFERENCE_BACKEND = shutil.which("Rscript") is not None and (HAS_MASHR_SOURCE or _has_r_mashr())
+
+
+@pytest.mark.skipif(
+    not HAS_R_REFERENCE_BACKEND,
+    reason="R reference backend requires either ../mashr source or installed R package 'mashr'",
+)
+def test_end_to_end_mixsqp_matches_r_mixsqp_approximately():
     rng = np.random.default_rng(1234)
     Bhat = rng.normal(size=(60, 5))
     Shat = np.exp(rng.normal(loc=-0.1, scale=0.2, size=(60, 5)))
@@ -34,8 +49,8 @@ def test_end_to_end_mixsqp_matches_r_mixsqp_approximately():
         subprocess.run(
             [
                 "Rscript",
-                str(r_script),
-                str(repo_root),
+                str(R_SCRIPT),
+                str(REPO_ROOT),
                 str(bhat_csv),
                 str(shat_csv),
                 str(out_dir),

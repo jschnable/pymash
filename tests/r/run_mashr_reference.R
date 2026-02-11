@@ -15,20 +15,24 @@ if (!is.na(pi_csv) && toupper(pi_csv) == "NA") {
 }
 optmethod <- if (length(args) >= 6) args[[6]] else "mixEM"
 
-suppressPackageStartupMessages({
-  library(ashr)
-  library(mvtnorm)
-  library(plyr)
-  library(abind)
-  library(assertthat)
-  library(softImpute)
-  library(rmeta)
-})
-
 r_dir <- file.path(repo_root, "mashr", "R")
-files <- list.files(r_dir, pattern = "\\.R$", full.names = TRUE)
-for (f in files) {
-  source(f)
+if (dir.exists(r_dir)) {
+  suppressPackageStartupMessages({
+    library(ashr)
+    library(mvtnorm)
+    library(plyr)
+    library(abind)
+    library(assertthat)
+    library(softImpute)
+    library(rmeta)
+  })
+
+  files <- list.files(r_dir, pattern = "\\.R$", full.names = TRUE)
+  for (f in files) {
+    source(f)
+  }
+} else {
+  suppressPackageStartupMessages(library(mashr))
 }
 
 Bhat <- as.matrix(read.csv(bhat_csv, header = FALSE))

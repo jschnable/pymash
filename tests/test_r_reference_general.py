@@ -13,11 +13,26 @@ from pymash.data import mash_set_data
 from pymash.mash import FittedG, mash
 
 
-@pytest.mark.skipif(shutil.which("Rscript") is None, reason="Rscript is required for R reference comparison")
-def test_general_posterior_path_matches_r_with_fixed_g():
-    repo_root = Path(__file__).resolve().parents[2]
-    r_script = repo_root / "pymash" / "tests" / "r" / "run_mashr_reference.R"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = PROJECT_ROOT.parent
+R_SCRIPT = PROJECT_ROOT / "tests" / "r" / "run_mashr_reference.R"
 
+
+def _has_r_mashr() -> bool:
+    cmd = ["Rscript", "-e", "cat(as.integer(requireNamespace('mashr', quietly=TRUE)))"]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    return proc.returncode == 0 and proc.stdout.strip() == "1"
+
+
+HAS_MASHR_SOURCE = (REPO_ROOT / "mashr" / "R").is_dir()
+HAS_R_REFERENCE_BACKEND = shutil.which("Rscript") is not None and (HAS_MASHR_SOURCE or _has_r_mashr())
+
+
+@pytest.mark.skipif(
+    not HAS_R_REFERENCE_BACKEND,
+    reason="R reference backend requires either ../mashr source or installed R package 'mashr'",
+)
+def test_general_posterior_path_matches_r_with_fixed_g():
     rng = np.random.default_rng(77)
     Bhat = rng.normal(size=(35, 5))
     # Varying Shat rows trigger the non-common-cov posterior path.
@@ -43,8 +58,8 @@ def test_general_posterior_path_matches_r_with_fixed_g():
         subprocess.run(
             [
                 "Rscript",
-                str(r_script),
-                str(repo_root),
+                str(R_SCRIPT),
+                str(REPO_ROOT),
                 str(bhat_csv),
                 str(shat_csv),
                 str(out_dir),

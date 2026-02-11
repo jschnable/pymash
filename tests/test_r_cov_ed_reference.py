@@ -12,6 +12,9 @@ from pymash.covariances import cov_pca
 from pymash.data import mash_set_data
 from pymash.ed import _edcpp, bovy_wrapper
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+R_SCRIPT = PROJECT_ROOT / "tests" / "r" / "run_cov_ed_reference.R"
+
 
 def _has_r_mashr() -> bool:
     if shutil.which("Rscript") is None:
@@ -27,9 +30,6 @@ HAS_R_MASHR = _has_r_mashr()
 @pytest.mark.skipif(_edcpp is None, reason="C++ ED backend not built")
 @pytest.mark.skipif(not HAS_R_MASHR, reason="R package 'mashr' is required for bovy regression test")
 def test_bovy_wrapper_regression_against_r_mashr():
-    repo_root = Path(__file__).resolve().parents[2]
-    r_script = repo_root / "pymash" / "tests" / "r" / "run_cov_ed_reference.R"
-
     rng = np.random.default_rng(202)
     Bhat = rng.normal(size=(60, 5))
     Shat = np.exp(rng.normal(loc=-0.1, scale=0.2, size=(60, 5)))
@@ -44,7 +44,7 @@ def test_bovy_wrapper_regression_against_r_mashr():
         np.savetxt(shat_csv, Shat, delimiter=",")
 
         subprocess.run(
-            ["Rscript", str(r_script), str(bhat_csv), str(shat_csv), str(out_dir)],
+            ["Rscript", str(R_SCRIPT), str(bhat_csv), str(shat_csv), str(out_dir)],
             check=True,
             capture_output=True,
             text=True,

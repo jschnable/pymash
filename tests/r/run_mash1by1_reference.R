@@ -11,20 +11,24 @@ shat_csv <- args[[3]]
 alpha <- as.numeric(args[[4]])
 out_dir <- args[[5]]
 
-suppressPackageStartupMessages({
-  library(ashr)
-  library(mvtnorm)
-  library(plyr)
-  library(abind)
-  library(assertthat)
-  library(softImpute)
-  library(rmeta)
-})
-
 r_dir <- file.path(repo_root, "mashr", "R")
-files <- list.files(r_dir, pattern = "\\.R$", full.names = TRUE)
-for (f in files) {
-  source(f)
+if (dir.exists(r_dir)) {
+  suppressPackageStartupMessages({
+    library(ashr)
+    library(mvtnorm)
+    library(plyr)
+    library(abind)
+    library(assertthat)
+    library(softImpute)
+    library(rmeta)
+  })
+
+  files <- list.files(r_dir, pattern = "\\.R$", full.names = TRUE)
+  for (f in files) {
+    source(f)
+  }
+} else {
+  suppressPackageStartupMessages(library(mashr))
 }
 
 Bhat <- as.matrix(read.csv(bhat_csv, header = FALSE))

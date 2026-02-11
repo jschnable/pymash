@@ -13,17 +13,27 @@ from pymash.data import mash_set_data
 from pymash.mash import FittedG, mash
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = PROJECT_ROOT.parent
+R_SCRIPT = PROJECT_ROOT / "tests" / "r" / "run_mashr_reference.R"
+
+
+def _has_r_mashr() -> bool:
+    cmd = ["Rscript", "-e", "cat(as.integer(requireNamespace('mashr', quietly=TRUE)))"]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    return proc.returncode == 0 and proc.stdout.strip() == "1"
+
+
 HAS_RSCRIPT = shutil.which("Rscript") is not None
+HAS_MASHR_SOURCE = (REPO_ROOT / "mashr" / "R").is_dir()
+HAS_R_REFERENCE_BACKEND = HAS_RSCRIPT and (HAS_MASHR_SOURCE or _has_r_mashr())
 
 
 def _run_r_reference(
-    repo_root: Path,
     Bhat: np.ndarray,
     Shat: np.ndarray,
     pi: np.ndarray | None = None,
 ) -> dict[str, np.ndarray | float]:
-    r_script = repo_root / "pymash" / "tests" / "r" / "run_mashr_reference.R"
-
     with TemporaryDirectory() as td:
         tmp = Path(td)
         bhat_csv = tmp / "bhat.csv"
@@ -35,8 +45,8 @@ def _run_r_reference(
 
         cmd = [
             "Rscript",
-            str(r_script),
-            str(repo_root),
+            str(R_SCRIPT),
+            str(REPO_ROOT),
             str(bhat_csv),
             str(shat_csv),
             str(out_dir),
@@ -57,10 +67,11 @@ def _run_r_reference(
         }
 
 
-@pytest.mark.skipif(not HAS_RSCRIPT, reason="Rscript is required for R reference comparison")
+@pytest.mark.skipif(
+    not HAS_R_REFERENCE_BACKEND,
+    reason="R reference backend requires either ../mashr source or installed R package 'mashr'",
+)
 def test_outputs_match_r_reference_with_fixed_g():
-    repo_root = Path(__file__).resolve().parents[2]
-
     rng = np.random.default_rng(42)
     Bhat = rng.normal(size=(40, 5))
     Shat = np.exp(rng.normal(loc=-0.2, scale=0.15, size=(40, 5)))
@@ -72,7 +83,7 @@ def test_outputs_match_r_reference_with_fixed_g():
     pi = np.linspace(1.0, float(len(xU)), len(xU), dtype=float)
     pi /= np.sum(pi)
 
-    r_out = _run_r_reference(repo_root, Bhat, Shat, pi=pi)
+    r_out = _run_r_reference(Bhat, Shat, pi=pi)
 
     g = FittedG(pi=pi, Ulist=list(U.values()), grid=np.array([0.5, 1.0]), usepointmass=True)
     m = mash(data, g=g, fixg=True, outputlevel=2, output_lfdr=True)
@@ -84,15 +95,16 @@ def test_outputs_match_r_reference_with_fixed_g():
     assert np.isclose(m.loglik, r_out["loglik"], atol=1e-8, rtol=1e-8)
 
 
-@pytest.mark.skipif(not HAS_RSCRIPT, reason="Rscript is required for R reference comparison")
+@pytest.mark.skipif(
+    not HAS_R_REFERENCE_BACKEND,
+    reason="R reference backend requires either ../mashr source or installed R package 'mashr'",
+)
 def test_end_to_end_matches_r_reference_approximately():
-    repo_root = Path(__file__).resolve().parents[2]
-
     rng = np.random.default_rng(123)
     Bhat = rng.normal(size=(50, 5))
     Shat = np.exp(rng.normal(loc=-0.1, scale=0.2, size=(50, 5)))
 
-    r_out = _run_r_reference(repo_root, Bhat, Shat, pi=None)
+    r_out = _run_r_reference(Bhat, Shat, pi=None)
 
     data = mash_set_data(Bhat, Shat)
     U = cov_canonical(data)
