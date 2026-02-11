@@ -69,4 +69,4 @@ archs = ["x86_64", "aarch64"]
 
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
-environment = { MACOSX_DEPLOYMENT_TARGET = "10.14", PYMASH_OPENMP_DARWIN = "1" }
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.14", PYMASH_OPENMP_DARWIN = "0" }
