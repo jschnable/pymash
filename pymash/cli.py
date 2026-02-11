@@ -246,6 +246,70 @@ def _cmd_estimate_null_corr_simple(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_check(args: argparse.Namespace) -> int:
+    """Verify pymash installation and report threading status."""
+    import time
+
+    from . import __version__, _cpp_backend, _cpp_openmp_enabled
+
+    print(f"pymash {__version__}")
+    print()
+
+    # Check C++ backend
+    if _cpp_backend is None:
+        print("✗ C++ backend (_edcpp): NOT AVAILABLE")
+        print("  The core mash() function will not work.")
+        print("  Try: pip install --force-reinstall pymash")
+        return 1
+    print("✓ C++ backend (_edcpp): loaded")
+
+    # Check OpenMP
+    if _cpp_openmp_enabled:
+        print("✓ OpenMP: enabled (multi-threaded)")
+    else:
+        print("✗ OpenMP: disabled (single-threaded)")
+        if sys.platform == "darwin":
+            print("  Pre-built macOS wheels are single-threaded for compatibility.")
+            print("  For multi-threaded performance, rebuild with:")
+            print("    brew install libomp")
+            print("    pip install --force-reinstall --no-binary=pymash pymash")
+
+    # Check dependencies
+    print()
+    try:
+        import scipy
+
+        print(f"✓ scipy {scipy.__version__}")
+    except ImportError:
+        print("✗ scipy: NOT FOUND")
+        return 1
+
+    print(f"✓ numpy {np.__version__}")
+
+    # Quick smoke test
+    print()
+    print("Running quick smoke test...", end=" ", flush=True)
+    try:
+        from .simulations import simple_sims
+
+        start = time.perf_counter()
+        sim = simple_sims(nsamp=12, ncond=3, seed=42)
+        data = mash_set_data(Bhat=sim["Bhat"], Shat=sim["Shat"])
+        U = cov_canonical(data)
+        result = mash(data, Ulist=U, grid=np.array([1.0]), outputlevel=1, chunk_size=None)
+        elapsed = time.perf_counter() - start
+        if not np.isfinite(result.loglik):
+            raise RuntimeError("non-finite loglik")
+        print(f"done ({elapsed:.2f}s)")
+    except Exception as exc:
+        print(f"FAILED: {exc}")
+        return 1
+
+    print()
+    print("✓ Installation verified!")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pymash",
@@ -337,6 +401,12 @@ def build_parser() -> argparse.ArgumentParser:
     ncs.add_argument("--z-thresh", type=float, default=2.0, help="Null z-score threshold.")
     ncs.add_argument("--est-cov", action="store_true", help="Estimate covariance (default is correlation).")
     ncs.set_defaults(func=_cmd_estimate_null_corr_simple)
+
+    check = sub.add_parser(
+        "check",
+        help="Verify installation, threading status, and run a quick smoke test.",
+    )
+    check.set_defaults(func=_cmd_check)
 
     return parser
 

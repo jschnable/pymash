@@ -271,9 +271,59 @@ complete GWAS pipeline.
 
 ## Installation
 
+### Recommended: Use a Virtual Environment
+
+We recommend installing pymash in an isolated environment to avoid conflicts
+with other Python packages. This is especially important if you're new to Python
+or coming from R.
+
+**Option A: Using venv (built into Python)**
+
+```bash
+# Create environment (one time)
+python -m venv pymash-env
+
+# Activate it (every time you start a new terminal)
+# macOS/Linux:
+source pymash-env/bin/activate
+# Windows:
+pymash-env\Scripts\activate
+
+# Install pymash
+pip install pymash
+```
+
+**Option B: Using conda (if you have Anaconda/Miniconda)**
+
+```bash
+# Create and activate environment
+conda create -n pymash-env python=3.11
+conda activate pymash-env
+
+# Install pymash
+pip install pymash
+```
+
+**How do I know it worked?** Your terminal prompt should show `(pymash-env)`
+at the beginning after activation.
+
+### Basic Install
+
 ```bash
 pip install pymash
 ```
+
+### Verify Installation
+
+After installing, verify everything works:
+
+```bash
+pymash check
+```
+
+This checks the C++ backend, threading status, and runs a quick smoke test.
+
+### Build Requirements
 
 pymash includes a compiled C++ extension that is built automatically from
 source during installation. This requires:
@@ -443,6 +493,22 @@ core fitting function (`mash()`) requires this extension. To fix:
 **"matplotlib is required for plotting":** Install the plotting extra:
 `pip install pymash[plot]`.
 
+**"pymash is running single-threaded on macOS" warning:**
+This is expected for pre-built wheels. For better performance on large datasets,
+rebuild with OpenMP support (see "Threading Behavior by Platform" above).
+To check your current threading status:
+
+```bash
+pymash check
+```
+
+or in Python:
+
+```python
+import pymash
+info = pymash.check_threading(verbose=True)
+```
+
 ### Statistical / methodological pitfalls
 
 **Fitting on significant markers only:**
@@ -497,6 +563,8 @@ with `gridmult=1.25`.
 **Plotting:** `mash_plot_meta` (requires `pip install pymash[plot]`)
 
 **Simulation:** `simple_sims`, `simple_sims2`
+
+**Diagnostics:** `check_mash_data` (data quality), `check_threading` (OpenMP status)
 
 **Advanced** (not exported at top level — import from submodules if needed):
 `pymash.covariances.expand_cov`, `scale_cov`, `normalize_Ulist`;

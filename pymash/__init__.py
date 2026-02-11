@@ -115,9 +115,42 @@ from .results import (
 from .plots import mash_plot_meta
 from .simulations import simple_sims, simple_sims2
 
+import sys as _sys
+
+# C++ extension status - populated below
+_cpp_backend = None
+_cpp_openmp_enabled = False
+_cpp_openmp_status_known = False
+
 try:
-    from . import _edcpp as _edcpp  # noqa: F401
-except Exception:
+    # Import the C++ extension module
+    from . import _edcpp
+
+    _cpp_backend = _edcpp
+    try:
+        _cpp_openmp_enabled = bool(_edcpp.openmp_enabled())
+        _cpp_openmp_status_known = True
+    except Exception:
+        _cpp_openmp_enabled = False
+        _cpp_openmp_status_known = False
+        warnings.warn(
+            "pymash C++ extension loaded, but OpenMP status could not be queried. "
+            "Assuming single-threaded mode.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    # Warn macOS users if running single-threaded (OpenMP disabled in wheel)
+    if _sys.platform == "darwin" and _cpp_openmp_status_known and not _cpp_openmp_enabled:
+        warnings.warn(
+            "pymash is running single-threaded on macOS (OpenMP not enabled). "
+            "This is normal for pre-built wheels. For better performance on large datasets, "
+            "rebuild with OpenMP: brew install libomp && pip install --force-reinstall "
+            "--no-binary=pymash pymash. Run pymash.check_threading() for details.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+except ImportError:
     warnings.warn(
         "pymash C++ extension not found. This is needed for mash() fitting "
         "but not for data loading or result inspection. If you installed from "
@@ -127,6 +160,83 @@ except Exception:
         stacklevel=2,
     )
 
+
+def check_threading(verbose: bool = False) -> dict:
+    """Check and report pymash threading status.
+
+    Returns a dictionary with threading diagnostics and optionally prints a summary.
+    Useful for verifying that OpenMP is enabled for multi-threaded performance.
+
+    Returns
+    -------
+    dict
+        Dictionary with keys:
+        - ``"cpp_backend_available"``: bool, whether C++ extension loaded
+        - ``"openmp_enabled"``: bool, whether OpenMP is active
+        - ``"openmp_status_known"``: bool, whether OpenMP status was queryable
+        - ``"platform"``: str, operating system
+        - ``"recommendation"``: str or None, suggested action if applicable
+
+    Examples
+    --------
+    >>> import pymash
+    >>> info = pymash.check_threading(verbose=True)
+    pymash threading status:
+      Platform: darwin
+      C++ backend: available
+      OpenMP: disabled (single-threaded)
+      Recommendation: For multi-threaded performance, run:
+        brew install libomp
+        pip install --force-reinstall --no-binary=pymash pymash
+    """
+    info = {
+        "cpp_backend_available": _cpp_backend is not None,
+        "openmp_enabled": _cpp_openmp_enabled,
+        "openmp_status_known": _cpp_openmp_status_known,
+        "platform": _sys.platform,
+        "recommendation": None,
+    }
+
+    if _cpp_backend is None:
+        info["recommendation"] = (
+            "C++ extension failed to load. Reinstall with: pip install --force-reinstall pymash"
+        )
+    else:
+        if not _cpp_openmp_status_known:
+            info["recommendation"] = (
+                "OpenMP status is unknown. Ensure your installed pymash wheel/source build "
+                "matches your current Python environment."
+            )
+        elif not _cpp_openmp_enabled and _sys.platform == "darwin":
+            info["recommendation"] = (
+                "For multi-threaded performance on macOS, run:\n"
+                "    brew install libomp\n"
+                "    pip install --force-reinstall --no-binary=pymash pymash"
+            )
+        elif not _cpp_openmp_enabled and _sys.platform == "linux":
+            info["recommendation"] = (
+                "OpenMP should be enabled on Linux. Try rebuilding:\n"
+                "    pip install --force-reinstall --no-binary=pymash pymash"
+            )
+
+    if verbose:
+        print("pymash threading status:")
+        print(f"  Platform: {_sys.platform}")
+        if _cpp_backend is None:
+            print("  C++ backend: NOT AVAILABLE")
+        else:
+            print("  C++ backend: available")
+            if not _cpp_openmp_status_known:
+                print("  OpenMP: unknown (status query unavailable)")
+            elif _cpp_openmp_enabled:
+                print("  OpenMP: enabled (multi-threaded)")
+            else:
+                print("  OpenMP: disabled (single-threaded)")
+        if info["recommendation"] is not None:
+            print(f"  Recommendation: {info['recommendation']}")
+
+    return info
+
 __all__ = [
     "MashData",
     "FittedG",
@@ -134,6 +244,7 @@ __all__ = [
     "TrainApplyResult",
     "ChunkedApplyResult",
     "check_mash_data",
+    "check_threading",
     "regularize_cov",
     "mash_set_data",
     "mash_update_data",
