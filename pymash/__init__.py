@@ -6,6 +6,10 @@ mash_set_data
     Create a MashData object from Bhat/Shat matrices.
 mash_update_data
     Copy a MashData with a new correlation matrix V or contrast ref.
+check_mash_data
+    Run pre-fit diagnostics for common data quality issues.
+regularize_cov
+    Add diagonal ridge to covariance/correlation matrices.
 contrast_matrix
     Build a contrast matrix for comparing conditions to a reference.
 
@@ -76,7 +80,14 @@ try:
 except Exception:
     __version__ = "0.0.0"
 
-from .data import MashData, contrast_matrix, mash_set_data, mash_update_data
+from .data import (
+    MashData,
+    check_mash_data,
+    contrast_matrix,
+    mash_set_data,
+    mash_update_data,
+    regularize_cov,
+)
 from .correlation import estimate_null_correlation_simple, mash_estimate_corr_em
 from .covariances import cov_canonical, cov_ed, cov_pca, cov_udi
 from .mash import FittedG, MashResult, mash, mash_compute_posterior_matrices, mash_1by1
@@ -122,6 +133,8 @@ __all__ = [
     "MashResult",
     "TrainApplyResult",
     "ChunkedApplyResult",
+    "check_mash_data",
+    "regularize_cov",
     "mash_set_data",
     "mash_update_data",
     "contrast_matrix",

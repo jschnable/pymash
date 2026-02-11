@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from .data import MashData
-from .data import mash_update_data
+from .data import mash_update_data, regularize_cov
 from .mash import MashResult, mash
 
 
-def estimate_null_correlation_simple(data: MashData, z_thresh: float = 2.0, est_cor: bool = True) -> np.ndarray:
+def estimate_null_correlation_simple(
+    data: MashData,
+    z_thresh: float = 2.0,
+    est_cor: bool = True,
+    on_insufficient_null: str = "error",
+    v_ridge: float = 0.0,
+) -> np.ndarray:
     """Estimate the null correlation structure among conditions.
 
     Identifies putatively null effects (those with |z| < ``z_thresh`` in
@@ -23,6 +31,12 @@ def estimate_null_correlation_simple(data: MashData, z_thresh: float = 2.0, est_
         Z-score threshold for selecting null-ish effects.
     est_cor : bool
         If True, return a correlation matrix; if False, return covariance.
+    on_insufficient_null : str
+        Behavior when fewer than ``R`` null-ish effects are found:
+        ``"error"`` (default), ``"identity"``, or ``"all"``.
+    v_ridge : float
+        Optional diagonal ridge regularization applied to the returned
+        matrix. If ``est_cor=True``, output is re-scaled to correlation.
 
     Returns
     -------
@@ -36,13 +50,42 @@ def estimate_null_correlation_simple(data: MashData, z_thresh: float = 2.0, est_
     """
     z = data.Bhat / data.Shat
     nullish = np.max(np.abs(z), axis=1) < z_thresh
-    if np.sum(nullish) < data.n_conditions:
-        raise ValueError("Not enough null effects to estimate correlation")
+    n_null = int(np.sum(nullish))
 
-    z_null = z[nullish]
-    if est_cor:
-        return np.corrcoef(z_null, rowvar=False)
-    return np.cov(z_null, rowvar=False)
+    mode = on_insufficient_null.lower()
+    if mode not in {"error", "identity", "all"}:
+        raise ValueError("on_insufficient_null must be one of {'error', 'identity', 'all'}")
+    if n_null < data.n_conditions:
+        msg = (
+            f"Not enough null effects to estimate correlation at z_thresh={z_thresh}. "
+            f"Found {n_null}, need at least {data.n_conditions}."
+        )
+        if mode == "error":
+            raise ValueError(msg)
+        if mode == "identity":
+            warnings.warn(f"{msg} Falling back to identity matrix.", RuntimeWarning, stacklevel=2)
+            out = np.eye(data.n_conditions, dtype=float)
+            if v_ridge > 0:
+                out = regularize_cov(out, ridge=v_ridge, to_correlation=est_cor)
+            return out
+        if mode == "all":
+            warnings.warn(f"{msg} Falling back to all effects.", RuntimeWarning, stacklevel=2)
+            z_null = z
+    else:
+        z_null = z[nullish]
+
+    cov = np.cov(z_null, rowvar=False)
+    if not np.all(np.isfinite(cov)):
+        warnings.warn(
+            "Estimated null covariance contained non-finite values; falling back to identity.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        cov = np.eye(data.n_conditions, dtype=float)
+    out = _cov2cor(cov) if est_cor else cov
+    if v_ridge > 0:
+        out = regularize_cov(out, ridge=v_ridge, to_correlation=est_cor)
+    return out
 
 
 def _cov2cor(V: np.ndarray) -> np.ndarray:

@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from pymash.data import mash_set_data
 
@@ -25,3 +26,10 @@ def test_mash_set_data_missing_pattern_and_alpha():
     assert np.isfinite(data.Shat_alpha).all()
     assert data.Bhat[0, 1] == 0.0
     assert data.Shat[0, 1] == 1e6
+
+
+def test_mash_set_data_negative_shat_has_swap_hint():
+    Bhat = np.array([[1.0, 2.0], [3.0, 4.0]])
+    Shat = np.array([[0.2, -0.1], [0.4, 0.5]])
+    with pytest.raises(ValueError, match="swapped"):
+        mash_set_data(Bhat=Bhat, Shat=Shat)

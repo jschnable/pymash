@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Union
+from dataclasses import dataclass
+from typing import Any, Union
 
 import numpy as np
 
@@ -10,10 +11,46 @@ from .posterior import PosteriorMatrices
 ResultLike = Union[MashResult, PosteriorMatrices]
 
 
-def get_log10bf(m: MashResult) -> np.ndarray | None:
-    if m.null_loglik is None or m.alt_loglik is None:
+@dataclass
+class _ChunkedResultView:
+    posterior_mean: np.ndarray | None
+    posterior_sd: np.ndarray | None
+    lfsr: np.ndarray | None
+    lfdr: np.ndarray | None
+    negative_prob: np.ndarray | None
+    posterior_samples: np.ndarray | None
+    null_loglik: np.ndarray | None
+    alt_loglik: np.ndarray | None
+    fitted_g: Any
+
+
+def _normalize_result_container(m: Any) -> Any:
+    # TrainApplyResult: expose the full-data result by default.
+    if hasattr(m, "apply_result") and hasattr(m, "train_result"):
+        return m.apply_result
+
+    # ChunkedApplyResult: adapt array dict to a result-like view.
+    if hasattr(m, "arrays") and hasattr(m, "fitted_g"):
+        arrays = getattr(m, "arrays")
+        return _ChunkedResultView(
+            posterior_mean=arrays.get("posterior_mean"),
+            posterior_sd=arrays.get("posterior_sd"),
+            lfsr=arrays.get("lfsr"),
+            lfdr=arrays.get("lfdr"),
+            negative_prob=arrays.get("negative_prob"),
+            posterior_samples=arrays.get("posterior_samples"),
+            null_loglik=arrays.get("null_loglik"),
+            alt_loglik=arrays.get("alt_loglik"),
+            fitted_g=getattr(m, "fitted_g"),
+        )
+    return m
+
+
+def get_log10bf(m: Any) -> np.ndarray | None:
+    mm = _normalize_result_container(m)
+    if mm.null_loglik is None or mm.alt_loglik is None:
         return None
-    return (m.alt_loglik - m.null_loglik) / np.log(10.0)
+    return (mm.alt_loglik - mm.null_loglik) / np.log(10.0)
 
 
 def _require_matrix(x: np.ndarray | None, name: str) -> np.ndarray:
@@ -35,7 +72,8 @@ def get_pm(m: ResultLike) -> np.ndarray:
     np.ndarray
         Posterior means, shape ``(J, R)``.
     """
-    return _require_matrix(m.posterior_mean, "posterior_mean")
+    mm = _normalize_result_container(m)
+    return _require_matrix(mm.posterior_mean, "posterior_mean")
 
 
 def get_psd(m: ResultLike) -> np.ndarray:
@@ -51,7 +89,8 @@ def get_psd(m: ResultLike) -> np.ndarray:
     np.ndarray
         Posterior standard deviations, shape ``(J, R)``.
     """
-    return _require_matrix(m.posterior_sd, "posterior_sd")
+    mm = _normalize_result_container(m)
+    return _require_matrix(mm.posterior_sd, "posterior_sd")
 
 
 def get_lfsr(m: ResultLike) -> np.ndarray:
@@ -70,7 +109,8 @@ def get_lfsr(m: ResultLike) -> np.ndarray:
     np.ndarray
         Local false sign rates, shape ``(J, R)``.
     """
-    return _require_matrix(m.lfsr, "lfsr")
+    mm = _normalize_result_container(m)
+    return _require_matrix(mm.lfsr, "lfsr")
 
 
 def get_lfdr(m: ResultLike) -> np.ndarray:
@@ -94,7 +134,8 @@ def get_lfdr(m: ResultLike) -> np.ndarray:
     np.ndarray
         Local false discovery rates, shape ``(J, R)``.
     """
-    return _require_matrix(m.lfdr, "lfdr")
+    mm = _normalize_result_container(m)
+    return _require_matrix(mm.lfdr, "lfdr")
 
 
 def get_ncond(m: ResultLike) -> int:
@@ -213,7 +254,10 @@ def get_estimated_pi(m: MashResult, dimension: str = "cov") -> np.ndarray:
     if dimension not in {"cov", "grid", "all"}:
         raise ValueError("dimension must be one of 'cov', 'grid', 'all'")
 
-    g = m.fitted_g
+    mm = _normalize_result_container(m)
+    if not hasattr(mm, "fitted_g"):
+        raise ValueError("fitted_g is not available in this result")
+    g = mm.fitted_g
     pihat = np.asarray(g.pi, dtype=float)
 
     if dimension == "all":
@@ -311,7 +355,8 @@ def get_pairwise_sharing_from_samples(
     lfsr_thresh: float = 0.05,
     FUN=lambda x: x,
 ) -> np.ndarray:
-    samples = m.posterior_samples
+    mm = _normalize_result_container(m)
+    samples = mm.posterior_samples
     if samples is None:
         raise ValueError("No posterior samples available")
 

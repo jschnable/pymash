@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from itertools import product
+import warnings
 
 import numpy as np
 
@@ -294,6 +295,14 @@ def cov_pca(data: MashData, npc: int, subset: np.ndarray | list[int] | None = No
         subset_idx = np.asarray(subset, dtype=int)
     if subset_idx.size == 0:
         raise ValueError("subset cannot be empty")
+    min_recommended = int(data.n_conditions * 20)
+    if subset_idx.size < min_recommended:
+        warnings.warn(
+            f"Only {subset_idx.size} effects for {data.n_conditions} conditions. "
+            "Data-driven covariances from PCA may be unstable; consider canonical covariances.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     X = data.Bhat[subset_idx]
     _, s, vt = np.linalg.svd(X, full_matrices=False)
@@ -351,6 +360,15 @@ def cov_ed(
         names = [str(i + 1) for i in range(len(mats))]
     if not mats:
         raise ValueError("Ulist_init cannot be empty")
+    subset_size = data.n_effects if subset is None else int(np.asarray(subset).size)
+    min_recommended = int(data.n_conditions * 20)
+    if subset_size < min_recommended:
+        warnings.warn(
+            f"Only {subset_size} effects for {data.n_conditions} conditions. "
+            "Extreme Deconvolution may be unstable with so few effects.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     algo = algorithm.lower()
     if algo == "teem":

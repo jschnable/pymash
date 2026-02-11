@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import warnings
 
 import numpy as np
 from scipy.stats import norm, t
@@ -108,6 +109,108 @@ def _check_positive_definite(x: np.ndarray, name: str) -> None:
         raise ValueError(f"{name} must be positive definite") from exc
 
 
+def regularize_cov(V: np.ndarray, ridge: float = 1e-6, to_correlation: bool = False) -> np.ndarray:
+    """Add diagonal ridge regularization to covariance/correlation matrices."""
+    if ridge < 0:
+        raise ValueError("ridge must be non-negative")
+
+    arr = np.asarray(V, dtype=float)
+    if arr.ndim == 2:
+        if arr.shape[0] != arr.shape[1]:
+            raise ValueError("V must be a square matrix")
+        out = arr + ridge * np.eye(arr.shape[0], dtype=float)
+        out = 0.5 * (out + out.T)
+        if to_correlation:
+            d = np.sqrt(np.maximum(np.diag(out), np.finfo(float).tiny))
+            out = out / np.outer(d, d)
+            np.fill_diagonal(out, 1.0)
+        return out
+
+    if arr.ndim == 3:
+        if arr.shape[1] != arr.shape[2]:
+            raise ValueError("V must have shape (J, R, R)")
+        out = np.array(arr, copy=True)
+        eye = np.eye(arr.shape[1], dtype=float)
+        for j in range(arr.shape[0]):
+            out[j] = arr[j] + ridge * eye
+            out[j] = 0.5 * (out[j] + out[j].T)
+            if to_correlation:
+                d = np.sqrt(np.maximum(np.diag(out[j]), np.finfo(float).tiny))
+                out[j] = out[j] / np.outer(d, d)
+                np.fill_diagonal(out[j], 1.0)
+        return out
+
+    raise ValueError("V must be either 2D or 3D")
+
+
+def check_mash_data(
+    Bhat: np.ndarray,
+    Shat: np.ndarray | float,
+    *,
+    near_zero_tol: float = 1e-6,
+    se_cv_thresh: float = 1.0,
+    corr_cond_thresh: float = 1e4,
+    verbose: bool = True,
+) -> dict[str, str]:
+    """Diagnose common data-quality issues before fitting mash."""
+    bhat = _as_2d_float_array(Bhat, "Bhat")
+    shat = _as_2d_float_array(Shat, "Shat", shape=bhat.shape)
+    if bhat.shape != shat.shape:
+        raise ValueError("dimensions of Bhat and Shat must match")
+
+    issues: dict[str, str] = {}
+
+    finite_shat = shat[np.isfinite(shat)]
+    if finite_shat.size == 0:
+        issues["invalid_shat"] = "Shat has no finite entries."
+    else:
+        n_nonpos = int(np.sum(finite_shat <= 0.0))
+        if n_nonpos > 0:
+            issues["nonpositive_se"] = (
+                f"Shat contains {n_nonpos} non-positive values. "
+                "Standard errors must be strictly positive."
+            )
+
+        positive_shat = finite_shat[finite_shat > 0.0]
+        if positive_shat.size > 1:
+            mean_se = float(np.mean(positive_shat))
+            cv_se = float(np.std(positive_shat) / max(mean_se, np.finfo(float).tiny))
+            if cv_se > se_cv_thresh:
+                issues["high_se_variability"] = (
+                    f"SE coefficient of variation is {cv_se:.2f}. "
+                    "Consider alpha=1 (z-score scale), especially for GWAS/eQTL."
+                )
+
+    near_zero = int(np.sum(np.isfinite(shat) & (shat <= near_zero_tol)))
+    if near_zero > 0:
+        issues["near_zero_se"] = (
+            f"{near_zero} entries have Shat <= {near_zero_tol:g}. "
+            "Set zero_Shat_reset (or zero_Bhat_Shat_reset) before fitting."
+        )
+
+    finite_mask = np.isfinite(bhat) & np.isfinite(shat) & (np.abs(shat) > near_zero_tol)
+    if np.any(finite_mask) and bhat.shape[0] > 1 and bhat.shape[1] > 1:
+        z = np.zeros_like(bhat, dtype=float)
+        z[finite_mask] = bhat[finite_mask] / shat[finite_mask]
+        col_sd = np.std(z, axis=0)
+        valid_cols = col_sd > np.finfo(float).tiny
+        if int(np.sum(valid_cols)) >= 2:
+            corr = np.corrcoef(z[:, valid_cols], rowvar=False)
+            if np.all(np.isfinite(corr)):
+                cond = float(np.linalg.cond(corr))
+                if cond > corr_cond_thresh:
+                    issues["ill_conditioned_traits"] = (
+                        f"Trait z-score correlation condition number is {cond:.1f}. "
+                        "Traits are highly collinear; consider covariance regularization."
+                    )
+
+    if verbose:
+        for msg in issues.values():
+            print(f"[check_mash_data] {msg}")
+
+    return issues
+
+
 def p2z(pval: np.ndarray, bhat: np.ndarray) -> np.ndarray:
     z = np.abs(norm.ppf(pval / 2.0))
     return np.where(bhat < 0, -z, z)
@@ -120,6 +223,7 @@ def mash_set_data(
     df: np.ndarray | float = np.inf,
     pval: np.ndarray | None = None,
     V: np.ndarray | None = None,
+    v_ridge: float = 0.0,
     zero_check_tol: float = np.finfo(float).eps,
     zero_Bhat_Shat_reset: float = 0.0,
     zero_Shat_reset: float = 0.0,
@@ -157,6 +261,9 @@ def mash_set_data(
         Correlation matrix among conditions, shape ``(R, R)``, or
         per-effect correlation matrices, shape ``(J, R, R)``.
         Defaults to identity.
+    v_ridge : float
+        Optional diagonal ridge added to ``V`` before validation. Use
+        this when ``V`` is nearly singular.
     zero_check_tol : float
         Tolerance for checking near-zero standard errors.
     zero_Bhat_Shat_reset : float
@@ -172,7 +279,7 @@ def mash_set_data(
 
     Examples
     --------
-    >>> data = mash_set_data(Bhat, Shat)
+    >>> data = mash_set_data(Bhat=Bhat, Shat=Shat)
     >>> data.n_effects, data.n_conditions
     (2000, 5)
     """
@@ -200,6 +307,11 @@ def mash_set_data(
         raise ValueError("Bhat cannot contain Inf values")
     if np.any(np.isinf(shat)):
         raise ValueError("Shat cannot contain Inf values")
+    if np.any(shat < -zero_check_tol):
+        raise ValueError(
+            "Shat contains negative values. Standard errors must be positive; "
+            "check that Bhat and Shat were not swapped."
+        )
 
     near_zero = shat <= zero_check_tol
     if np.any(near_zero):
@@ -222,6 +334,8 @@ def mash_set_data(
         vmat = np.eye(R, dtype=float)
     else:
         vmat = np.asarray(V, dtype=float)
+        if v_ridge > 0:
+            vmat = regularize_cov(vmat, ridge=v_ridge, to_correlation=False)
 
     if vmat.ndim == 2:
         if vmat.shape != (R, R):
@@ -266,6 +380,19 @@ def mash_set_data(
     bhat[na_bhat] = 0.0
     shat[na_bhat] = 1e6
     shat_alpha[na_bhat] = 1.0
+
+    positive_shat = shat[np.isfinite(shat) & (shat > 0.0)]
+    if alpha == 0 and positive_shat.size > 1:
+        mean_se = float(np.mean(positive_shat))
+        cv_se = float(np.std(positive_shat) / max(mean_se, np.finfo(float).tiny))
+        fold = float(np.max(positive_shat) / max(np.min(positive_shat), np.finfo(float).tiny))
+        if cv_se > 1.0:
+            warnings.warn(
+                f"Standard errors vary widely (CV={cv_se:.2f}, max/min={fold:.2f}). "
+                "Consider alpha=1 (z-score scale), especially for GWAS/eQTL.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
     return MashData(
         Bhat=bhat,
@@ -378,7 +505,12 @@ def build_cov_stack(data: MashData) -> np.ndarray:
     return cov_stack
 
 
-def mash_update_data(mashdata: MashData, ref: int | str | None = None, V: np.ndarray | None = None) -> MashData:
+def mash_update_data(
+    mashdata: MashData,
+    ref: int | str | None = None,
+    V: np.ndarray | None = None,
+    v_ridge: float = 0.0,
+) -> MashData:
     """Update an existing MashData object with a new correlation structure.
 
     Creates a copy of ``mashdata`` with an updated correlation matrix ``V``
@@ -393,6 +525,8 @@ def mash_update_data(mashdata: MashData, ref: int | str | None = None, V: np.nda
         or ``"mean"`` for deviation-from-mean contrasts.
     V : np.ndarray, optional
         New correlation matrix, shape ``(R, R)`` or ``(J, R, R)``.
+    v_ridge : float
+        Optional diagonal ridge added to ``V`` before validation.
 
     Returns
     -------
@@ -418,6 +552,8 @@ def mash_update_data(mashdata: MashData, ref: int | str | None = None, V: np.nda
 
     if V is not None:
         vmat = np.asarray(V, dtype=float)
+        if v_ridge > 0:
+            vmat = regularize_cov(vmat, ridge=v_ridge, to_correlation=False)
         R = data.n_conditions
         if vmat.ndim == 2:
             if vmat.shape != (R, R):
@@ -452,6 +588,8 @@ def mash_update_data(mashdata: MashData, ref: int | str | None = None, V: np.nda
 __all__ = [
     "MashData",
     "p2z",
+    "check_mash_data",
+    "regularize_cov",
     "mash_set_data",
     "mash_update_data",
     "contrast_matrix",

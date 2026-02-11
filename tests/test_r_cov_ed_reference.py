@@ -55,7 +55,8 @@ def test_bovy_wrapper_regression_against_r_mashr():
         av_loglik_r = float(np.loadtxt(out_dir / "av_loglik.csv", delimiter=","))
 
     data = mash_set_data(Bhat, Shat)
-    U_init = cov_pca(data, npc=2)
+    with pytest.warns(RuntimeWarning, match="may be unstable"):
+        U_init = cov_pca(data, npc=2)
     out = bovy_wrapper(data, U_init, maxiter=80, tol=1e-5)
 
     pi_p = out["pi"]

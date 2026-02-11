@@ -38,7 +38,7 @@ import pymash as mash
 sim = mash.simple_sims(nsamp=500, ncond=5, err_sd=1.0, seed=1)
 
 # 2. Set up the data
-data = mash.mash_set_data(sim["Bhat"], sim["Shat"])
+data = mash.mash_set_data(Bhat=sim["Bhat"], Shat=sim["Shat"])
 
 # 3. Build covariance matrices and fit the model
 U_c = mash.cov_canonical(data)
@@ -68,12 +68,12 @@ For large studies, a robust two-stage pattern is:
 import numpy as np
 import pymash as mash
 
-data = mash.mash_set_data(Bhat, Shat, alpha=1)
+data = mash.mash_set_data(Bhat=Bhat, Shat=Shat, alpha=1)
 
 # Stage 0: learn covariance patterns on strong effects
 m1 = mash.mash_1by1(data)
 strong_idx = mash.get_significant_results(m1, thresh=0.05)
-data_strong = mash.mash_set_data(Bhat[strong_idx], Shat[strong_idx], alpha=1)
+data_strong = mash.mash_set_data(Bhat=Bhat[strong_idx], Shat=Shat[strong_idx], alpha=1)
 
 U_c = mash.cov_canonical(data)
 U_pca = mash.cov_pca(data_strong, npc=5)
@@ -116,8 +116,8 @@ chunked = mash.apply_mash_prior_chunked(
     out_prefix="results/gwas40",  # writes results/gwas40.<name>.npy
 )
 
-pm = chunked.arrays["posterior_mean"]  # memmap if out_prefix is set
-lfsr = chunked.arrays["lfsr"]
+pm = mash.get_pm(chunked)      # works for ChunkedApplyResult
+lfsr = mash.get_lfsr(chunked)
 ```
 
 ## Interpreting Results
@@ -144,6 +144,10 @@ lfsr = chunked.arrays["lfsr"]
   fraction of significant effects that are the same sign and similar
   magnitude. Values near 1.0 mean the two conditions behave similarly.
 
+Prefer the `get_*` helpers over direct attribute access. They provide
+validation and work consistently across `MashResult`, `TrainApplyResult`,
+and `ChunkedApplyResult`.
+
 ## Choosing Covariance Matrices
 
 mash models effects as drawn from a mixture of multivariate normals. The
@@ -165,7 +169,7 @@ using `mash_1by1` and build a separate `MashData` for them:
 # Screen for strong signals (no cross-condition shrinkage)
 m1 = mash.mash_1by1(data)
 strong_idx = mash.get_significant_results(m1, thresh=0.05)
-data_strong = mash.mash_set_data(Bhat[strong_idx], Shat[strong_idx])
+data_strong = mash.mash_set_data(Bhat=Bhat[strong_idx], Shat=Shat[strong_idx])
 
 # Build covariances from the strong signals
 U_c = mash.cov_canonical(data)
@@ -192,11 +196,11 @@ For most GWAS analyses, convert to z-scores before calling mash:
 
 ```python
 Zhat = Bhat / Shat
-data = mash.mash_set_data(Zhat, np.ones_like(Zhat))
+data = mash.mash_set_data(Bhat=Zhat, Shat=np.ones_like(Zhat))
 # Posterior means are in z-score space; convert back: pm_effect = pm_z * Shat
 ```
 
-This is equivalent to `mash_set_data(Bhat, Shat, alpha=1)`.
+This is equivalent to `mash_set_data(Bhat=Bhat, Shat=Shat, alpha=1)`.
 
 ## mash_1by1 vs. mash
 
@@ -227,6 +231,9 @@ tests (markers, genes, ...) and R is the number of conditions (tissues,
 traits, ...). If your GWAS or eQTL tool writes summary statistics to a
 CSV or TSV, loading them looks like this:
 
+Use keyword arguments when calling `mash_set_data(Bhat=..., Shat=...)` to
+avoid accidentally swapping the two matrices.
+
 ```python
 import numpy as np
 import pandas as pd
@@ -255,7 +262,7 @@ Shat = merged[se_cols].to_numpy()
 
 # For GWAS data with varying SEs, convert to z-scores (standard practice)
 Zhat = Bhat / Shat
-data = mash.mash_set_data(Zhat, np.ones_like(Zhat))
+data = mash.mash_set_data(Bhat=Zhat, Shat=np.ones_like(Zhat))
 ```
 
 See [notebook 03](examples/03_eqtl_workflow.ipynb) for the full eQTL
@@ -273,12 +280,34 @@ source during installation. This requires:
 
 - A **C++ compiler** with C++17 support (GCC >= 7, Clang >= 5, or MSVC 2017+)
 - **pybind11** (installed automatically as a build dependency)
-- On **macOS**, OpenMP support is provided via `libomp` from Homebrew
-  (`brew install libomp`). This is optional — pymash will build without it
-  but will not use multi-threading.
+- On **macOS**, optional OpenMP support is provided via `libomp` from Homebrew
+  (`brew install libomp`)
 
 Pre-built wheels (which need no compiler) are available for common
 platforms via `pip install pymash` once published to PyPI.
+
+### Threading Behavior by Platform
+
+- **Linux**: pymash enables OpenMP by default, so the C++ kernels use
+  multiple threads on larger workloads.
+- **macOS**: published wheels are built without OpenMP, so they are
+  single-threaded by default.
+
+If you want multi-threaded execution on macOS, build from source with
+Homebrew `libomp`:
+
+```bash
+brew install libomp
+export PYMASH_OPENMP_DARWIN=1
+export PYMASH_OMP_PREFIX="$(brew --prefix libomp)"
+python -m pip install --force-reinstall --no-binary=pymash pymash
+```
+
+Notes:
+
+- `--no-binary=pymash` forces a source build (instead of installing a wheel).
+- If `PYMASH_OMP_PREFIX` is not set, setup tries common defaults:
+  `/opt/homebrew/opt/libomp` and `/usr/local/opt/libomp`.
 
 For development:
 
@@ -460,6 +489,7 @@ with `gridmult=1.25`.
 `get_pm`, `get_psd`, `get_lfsr`, `get_lfdr`,
 `get_significant_results`, `get_n_significant_conditions`,
 `get_estimated_pi`, `get_pairwise_sharing`, `get_log10bf`
+(work with `MashResult`, `TrainApplyResult`, and `ChunkedApplyResult`)
 
 **Correlation estimation:**
 `estimate_null_correlation_simple`, `mash_estimate_corr_em`
