@@ -16,7 +16,8 @@ namespace py = pybind11;
 
 namespace {
 
-double kLog2Pi = std::log(2.0 * M_PI);
+constexpr double kPi = 3.141592653589793238462643383279502884;
+double kLog2Pi = std::log(2.0 * kPi);
 
 double clamp_min(double x, double lo) {
     return (x < lo) ? lo : x;

@@ -14,11 +14,11 @@ from pymash.simulations import simple_sims
 
 
 def _run_cli(args: list[str], repo_root: Path) -> subprocess.CompletedProcess:
+    # In wheel tests, forcing PYTHONPATH/cwd to the source checkout makes
+    # subprocesses import source instead of the installed wheel.
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(repo_root)
     return subprocess.run(
         [sys.executable, "-m", "pymash", *args],
-        cwd=repo_root,
         env=env,
         text=True,
         capture_output=True,
