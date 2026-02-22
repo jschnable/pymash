@@ -53,6 +53,10 @@ get_pairwise_sharing_from_samples
     Pairwise sharing matrix from posterior samples.
 get_log10bf
     Log10 Bayes factors.
+renumber_credible_sets_by_logbf, renumber_credible_sets_from_result
+    Rank and renumber credible sets by descending Log10 BF.
+format_credible_set_report
+    Text report for ranked credible sets.
 
 Correlation estimation
 ----------------------
@@ -64,7 +68,7 @@ mash_estimate_corr_em
 Plotting
 --------
 mash_plot_meta
-    Forest plot of posterior effects (requires ``pip install pymash[plot]``).
+    Forest plot of posterior effects (requires ``pip install pymashrink[plot]``).
 
 Simulation
 ----------
@@ -101,6 +105,8 @@ from .workflow import (
     select_training_effects,
 )
 from .results import (
+    CredibleSetSummary,
+    format_credible_set_report,
     get_estimated_pi,
     get_lfdr,
     get_lfsr,
@@ -111,6 +117,8 @@ from .results import (
     get_pm,
     get_psd,
     get_significant_results,
+    renumber_credible_sets_by_logbf,
+    renumber_credible_sets_from_result,
 )
 from .plots import mash_plot_meta
 from .simulations import simple_sims, simple_sims2
@@ -146,7 +154,7 @@ try:
             "pymash is running single-threaded on macOS (OpenMP not enabled). "
             "This is normal for pre-built wheels. For better performance on large datasets, "
             "rebuild with OpenMP: brew install libomp && pip install --force-reinstall "
-            "--no-binary=pymash pymash. Run pymash.check_threading() for details.",
+            "--no-binary=pymashrink pymashrink. Run pymash.check_threading() for details.",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -154,7 +162,7 @@ except ImportError:
     warnings.warn(
         "pymash C++ extension not found. This is needed for mash() fitting "
         "but not for data loading or result inspection. If you installed from "
-        "a pre-built wheel this should not happen — try: pip install --force-reinstall pymash. "
+        "a pre-built wheel this should not happen — try: pip install --force-reinstall pymashrink."
         "If building from source, ensure a C++ compiler is available (see README).",
         RuntimeWarning,
         stacklevel=2,
@@ -187,7 +195,7 @@ def check_threading(verbose: bool = False) -> dict:
       OpenMP: disabled (single-threaded)
       Recommendation: For multi-threaded performance, run:
         brew install libomp
-        pip install --force-reinstall --no-binary=pymash pymash
+        pip install --force-reinstall --no-binary=pymashrink pymashrink
     """
     info = {
         "cpp_backend_available": _cpp_backend is not None,
@@ -199,7 +207,7 @@ def check_threading(verbose: bool = False) -> dict:
 
     if _cpp_backend is None:
         info["recommendation"] = (
-            "C++ extension failed to load. Reinstall with: pip install --force-reinstall pymash"
+            "C++ extension failed to load. Reinstall with: pip install --force-reinstall pymashrink"
         )
     else:
         if not _cpp_openmp_status_known:
@@ -211,12 +219,12 @@ def check_threading(verbose: bool = False) -> dict:
             info["recommendation"] = (
                 "For multi-threaded performance on macOS, run:\n"
                 "    brew install libomp\n"
-                "    pip install --force-reinstall --no-binary=pymash pymash"
+                "    pip install --force-reinstall --no-binary=pymashrink pymashrink"
             )
         elif not _cpp_openmp_enabled and _sys.platform == "linux":
             info["recommendation"] = (
                 "OpenMP should be enabled on Linux. Try rebuilding:\n"
-                "    pip install --force-reinstall --no-binary=pymash pymash"
+                "    pip install --force-reinstall --no-binary=pymashrink pymashrink"
             )
 
     if verbose:
@@ -263,12 +271,16 @@ __all__ = [
     "apply_mash_prior",
     "apply_mash_prior_chunked",
     "mash_train_apply",
+    "CredibleSetSummary",
     "get_log10bf",
     "get_significant_results",
     "get_n_significant_conditions",
     "get_estimated_pi",
     "get_pairwise_sharing",
     "get_pairwise_sharing_from_samples",
+    "renumber_credible_sets_by_logbf",
+    "renumber_credible_sets_from_result",
+    "format_credible_set_report",
     "get_pm",
     "get_psd",
     "get_lfsr",

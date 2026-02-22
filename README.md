@@ -244,13 +244,13 @@ trait_files = ["trait1.csv", "trait2.csv", "trait3.csv", "trait4.csv", "trait5.c
 
 frames = []
 for i, f in enumerate(trait_files):
-    df = pd.read_csv(f)           # columns: SNP, BETA, SE, ...
-    frame = df.set_index("SNP")[["BETA", "SE"]].rename(
+    df = pd.read_csv(f)           # columns: MARKER, BETA, SE, ...
+    frame = df.set_index("MARKER")[["BETA", "SE"]].rename(
         columns={"BETA": f"BETA_{i}", "SE": f"SE_{i}"}
     )
     frames.append(frame)
 
-# Align on SNP IDs and stack into J x R matrices
+# Align on marker IDs and stack into J x R matrices
 merged = frames[0]
 for frame in frames[1:]:
     merged = merged.join(frame, how="inner")
@@ -289,8 +289,8 @@ source pymash-env/bin/activate
 # Windows:
 pymash-env\Scripts\activate
 
-# Install pymash
-pip install pymash
+# Install pymashrink
+pip install pymashrink
 ```
 
 **Option B: Using conda (if you have Anaconda/Miniconda)**
@@ -300,8 +300,8 @@ pip install pymash
 conda create -n pymash-env python=3.11
 conda activate pymash-env
 
-# Install pymash
-pip install pymash
+# Install pymashrink
+pip install pymashrink
 ```
 
 **How do I know it worked?** Your terminal prompt should show `(pymash-env)`
@@ -310,7 +310,7 @@ at the beginning after activation.
 ### Basic Install
 
 ```bash
-pip install pymash
+pip install pymashrink
 ```
 
 ### Verify Installation
@@ -334,7 +334,7 @@ source during installation. This requires:
   (`brew install libomp`)
 
 Pre-built wheels (which need no compiler) are available for common
-platforms via `pip install pymash` once published to PyPI.
+platforms via `pip install pymashrink` once published to PyPI.
 
 ### Threading Behavior by Platform
 
@@ -350,12 +350,12 @@ Homebrew `libomp`:
 brew install libomp
 export PYMASH_OPENMP_DARWIN=1
 export PYMASH_OMP_PREFIX="$(brew --prefix libomp)"
-python -m pip install --force-reinstall --no-binary=pymash pymash
+python -m pip install --force-reinstall --no-binary=pymashrink pymashrink
 ```
 
 Notes:
 
-- `--no-binary=pymash` forces a source build (instead of installing a wheel).
+- `--no-binary=pymashrink` forces a source build (instead of installing a wheel).
 - If `PYMASH_OMP_PREFIX` is not set, setup tries common defaults:
   `/opt/homebrew/opt/libomp` and `/usr/local/opt/libomp`.
 
@@ -487,11 +487,11 @@ core fitting function (`mash()`) requires this extension. To fix:
 1. Ensure you have a C++ compiler installed (`gcc --version` or
    `clang --version`).
 2. On macOS, install Xcode command line tools: `xcode-select --install`.
-3. Reinstall: `pip install --force-reinstall pymash` (or `pip install -e .`
+3. Reinstall: `pip install --force-reinstall pymashrink` (or `pip install -e .`
    for development).
 
 **"matplotlib is required for plotting":** Install the plotting extra:
-`pip install pymash[plot]`.
+`pip install pymashrink[plot]`.
 
 **"pymash is running single-threaded on macOS" warning:**
 This is expected for pre-built wheels. For better performance on large datasets,
@@ -554,13 +554,15 @@ with `gridmult=1.25`.
 **Result extraction:**
 `get_pm`, `get_psd`, `get_lfsr`, `get_lfdr`,
 `get_significant_results`, `get_n_significant_conditions`,
-`get_estimated_pi`, `get_pairwise_sharing`, `get_log10bf`
+`get_estimated_pi`, `get_pairwise_sharing`, `get_log10bf`,
+`renumber_credible_sets_by_logbf`, `renumber_credible_sets_from_result`,
+`format_credible_set_report`
 (work with `MashResult`, `TrainApplyResult`, and `ChunkedApplyResult`)
 
 **Correlation estimation:**
 `estimate_null_correlation_simple`, `mash_estimate_corr_em`
 
-**Plotting:** `mash_plot_meta` (requires `pip install pymash[plot]`)
+**Plotting:** `mash_plot_meta` (requires `pip install pymashrink[plot]`)
 
 **Simulation:** `simple_sims`, `simple_sims2`
 

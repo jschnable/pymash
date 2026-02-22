@@ -4,6 +4,7 @@ from pymash.covariances import cov_canonical
 from pymash.data import mash_set_data
 from pymash.mash import mash, mash_compute_posterior_matrices
 from pymash.results import (
+    format_credible_set_report,
     get_estimated_pi,
     get_lfdr,
     get_lfsr,
@@ -13,6 +14,8 @@ from pymash.results import (
     get_pm,
     get_psd,
     get_significant_results,
+    renumber_credible_sets_by_logbf,
+    renumber_credible_sets_from_result,
 )
 from pymash.simulations import simple_sims
 from pymash.workflow import apply_mash_prior_chunked, mash_train_apply
@@ -116,3 +119,41 @@ def test_result_helpers_accept_chunked_apply_result():
     assert lfdr.shape == sim["Bhat"].shape
     assert np.isclose(np.sum(pi_cov), 1.0)
     assert bf is not None and bf.shape[0] == sim["Bhat"].shape[0]
+
+
+def test_credible_set_renumbering_descends_by_logbf():
+    cs = np.array([0, 4, 4, 2, 2, 3, 3, 3], dtype=int)
+    log10bf = np.array([1.0, 0.7, 2.1, 3.2, np.nan, 1.1, 1.0, 0.4], dtype=float)
+
+    renumbered, summary = renumber_credible_sets_by_logbf(cs, log10bf, unassigned_label=0)
+
+    assert renumbered.tolist() == [0, 2, 2, 1, 1, 3, 3, 3]
+    assert [row.old_credible_set for row in summary] == [2, 4, 3]
+    assert [row.credible_set for row in summary] == [1, 2, 3]
+    assert np.isclose(summary[0].lead_log10bf, 3.2)
+    assert np.isclose(summary[1].lead_log10bf, 2.1)
+    report = format_credible_set_report(summary, top_n=2)
+    assert "CS1" in report
+    assert "3.2000" in report
+
+
+def test_credible_set_renumbering_from_result_uses_logbf():
+    sim = simple_sims(nsamp=14, ncond=3, err_sd=0.4, seed=35)
+    data = mash_set_data(sim["Bhat"], sim["Shat"])
+    U = cov_canonical(data)
+    m = mash(data, Ulist=U, grid=np.array([1.0]), outputlevel=2)
+
+    J = sim["Bhat"].shape[0]
+    cs = np.where(np.arange(J) < (J // 2), 10, 20)
+    renumbered, summary = renumber_credible_sets_from_result(m, cs, unassigned_label=0)
+
+    bf = get_log10bf(m)
+    assert bf is not None
+    lead10 = np.nanmax(bf[cs == 10])
+    lead20 = np.nanmax(bf[cs == 20])
+    expected_first_old = 10 if lead10 >= lead20 else 20
+
+    assert summary[0].old_credible_set == expected_first_old
+    assert len(np.unique(renumbered[cs == 10])) == 1
+    assert len(np.unique(renumbered[cs == 20])) == 1
+    assert set(np.unique(renumbered[cs != 0]).tolist()) == {1, 2}

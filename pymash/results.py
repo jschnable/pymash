@@ -24,6 +24,18 @@ class _ChunkedResultView:
     fitted_g: Any
 
 
+@dataclass(frozen=True)
+class CredibleSetSummary:
+    """Summary statistics for one credible set after Log-BF ranking."""
+
+    credible_set: int
+    old_credible_set: int
+    n_effects: int
+    lead_effect: int
+    lead_log10bf: float
+    mean_log10bf: float
+
+
 def _normalize_result_container(m: Any) -> Any:
     # TrainApplyResult: expose the full-data result by default.
     if hasattr(m, "apply_result") and hasattr(m, "train_result"):
@@ -51,6 +63,143 @@ def get_log10bf(m: Any) -> np.ndarray | None:
     if mm.null_loglik is None or mm.alt_loglik is None:
         return None
     return (mm.alt_loglik - mm.null_loglik) / np.log(10.0)
+
+
+def _as_1d_array(x: np.ndarray | list[int] | list[float], name: str) -> np.ndarray:
+    arr = np.asarray(x)
+    if arr.ndim != 1:
+        raise ValueError(f"{name} must be a 1D array")
+    return arr
+
+
+def renumber_credible_sets_by_logbf(
+    credible_set: np.ndarray | list[int],
+    log10bf: np.ndarray | list[float],
+    *,
+    unassigned_label: int = 0,
+) -> tuple[np.ndarray, list[CredibleSetSummary]]:
+    """Rank and renumber credible sets in descending order of Log10 BF.
+
+    Parameters
+    ----------
+    credible_set : array-like of int
+        Credible-set assignment per effect (length ``J``). Effects equal to
+        ``unassigned_label`` are treated as unassigned and are not ranked.
+    log10bf : array-like of float
+        Per-effect Log10 Bayes factors (length ``J``).
+    unassigned_label : int
+        Label that marks unassigned effects (default: ``0``).
+
+    Returns
+    -------
+    tuple[np.ndarray, list[CredibleSetSummary]]
+        ``(renumbered, summary)`` where:
+
+        - ``renumbered`` is a length-``J`` integer array with credible sets
+          renumbered ``1..K`` by descending lead Log10 BF.
+        - ``summary`` is an ordered list of per-set summaries in report order.
+    """
+    cs = _as_1d_array(credible_set, "credible_set")
+    if not np.issubdtype(cs.dtype, np.integer):
+        raise ValueError("credible_set must contain integer labels")
+    cs = cs.astype(int, copy=False)
+
+    bf = _as_1d_array(np.asarray(log10bf, dtype=float), "log10bf")
+    if cs.shape[0] != bf.shape[0]:
+        raise ValueError("credible_set and log10bf must have the same length")
+
+    if cs.size == 0:
+        return np.empty(0, dtype=int), []
+
+    renumbered = np.full(cs.shape, int(unassigned_label), dtype=int)
+    labels = [int(v) for v in np.unique(cs) if int(v) != int(unassigned_label)]
+
+    rows: list[CredibleSetSummary] = []
+    for old_label in labels:
+        idx = np.flatnonzero(cs == old_label)
+        if idx.size == 0:
+            continue
+        vals = bf[idx]
+        finite_mask = np.isfinite(vals)
+        if np.any(finite_mask):
+            finite_idx = idx[finite_mask]
+            finite_vals = vals[finite_mask]
+            lead_pos = int(np.argmax(finite_vals))
+            lead_effect = int(finite_idx[lead_pos])
+            lead_log10bf = float(finite_vals[lead_pos])
+            mean_log10bf = float(np.mean(finite_vals))
+        else:
+            lead_effect = int(idx[0])
+            lead_log10bf = float("-inf")
+            mean_log10bf = float("nan")
+
+        rows.append(
+            CredibleSetSummary(
+                credible_set=-1,
+                old_credible_set=int(old_label),
+                n_effects=int(idx.size),
+                lead_effect=lead_effect,
+                lead_log10bf=lead_log10bf,
+                mean_log10bf=mean_log10bf,
+            )
+        )
+
+    rows.sort(key=lambda x: (-x.lead_log10bf, x.old_credible_set))
+
+    ranked: list[CredibleSetSummary] = []
+    for new_label, row in enumerate(rows, start=1):
+        renumbered[cs == row.old_credible_set] = int(new_label)
+        ranked.append(
+            CredibleSetSummary(
+                credible_set=int(new_label),
+                old_credible_set=row.old_credible_set,
+                n_effects=row.n_effects,
+                lead_effect=row.lead_effect,
+                lead_log10bf=row.lead_log10bf,
+                mean_log10bf=row.mean_log10bf,
+            )
+        )
+
+    return renumbered, ranked
+
+
+def renumber_credible_sets_from_result(
+    m: Any,
+    credible_set: np.ndarray | list[int],
+    *,
+    unassigned_label: int = 0,
+) -> tuple[np.ndarray, list[CredibleSetSummary]]:
+    """Renumber credible sets from a mash result using descending Log10 BF."""
+    bf = get_log10bf(m)
+    if bf is None:
+        raise ValueError("log10bf is not available in this result")
+    return renumber_credible_sets_by_logbf(
+        credible_set,
+        bf,
+        unassigned_label=unassigned_label,
+    )
+
+
+def format_credible_set_report(
+    summary: list[CredibleSetSummary],
+    *,
+    top_n: int | None = None,
+) -> str:
+    """Format a credible-set summary report for logging or console output."""
+    if top_n is not None and top_n <= 0:
+        raise ValueError("top_n must be positive")
+
+    rows = summary if top_n is None else summary[: int(top_n)]
+    header = f"{'CS':<6}{'Old':>8}{'Size':>8}{'LeadIdx':>10}{'LeadLog10BF':>14}{'MeanLog10BF':>14}"
+    lines = [header, "-" * len(header)]
+    for row in rows:
+        lead_txt = f"{row.lead_log10bf:.4f}" if np.isfinite(row.lead_log10bf) else "-inf"
+        mean_txt = f"{row.mean_log10bf:.4f}" if np.isfinite(row.mean_log10bf) else "nan"
+        lines.append(
+            f"CS{row.credible_set:<4d}{row.old_credible_set:>8d}{row.n_effects:>8d}"
+            f"{row.lead_effect:>10d}{lead_txt:>14}{mean_txt:>14}"
+        )
+    return "\n".join(lines)
 
 
 def _require_matrix(x: np.ndarray | None, name: str) -> np.ndarray:
@@ -391,6 +540,10 @@ def get_pairwise_sharing_from_samples(
 
 
 __all__ = [
+    "CredibleSetSummary",
+    "renumber_credible_sets_by_logbf",
+    "renumber_credible_sets_from_result",
+    "format_credible_set_report",
     "get_log10bf",
     "get_significant_results",
     "get_n_significant_conditions",
