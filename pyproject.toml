@@ -3,8 +3,8 @@ requires = ["setuptools>=68", "wheel", "pybind11>=2.11"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pymash"
-version = "0.1.0"
+name = "pymashrink"
+version = "0.2.0"
 description = "Python implementation of multivariate adaptive shrinkage (mash)"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,7 +12,7 @@ license = { file = "LICENSE" }
 authors = [
   { name = "pymash contributors" },
 ]
-keywords = ["mash", "genomics", "gwas", "eqtl", "multivariate", "bayesian"]
+keywords = ["mash", "mashr", "pymash", "genomics", "gwas", "eqtl", "multivariate", "bayesian", "shrinkage"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",

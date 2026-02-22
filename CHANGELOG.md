@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-02-17
 
 ### Added
 
@@ -33,7 +33,7 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
-- Initial public `pymash` package and CLI.
+- Initial public `pymashrink` package and CLI (import as `pymash`).
 - Core mash fitting workflow (`mash`, `mash_1by1`, posterior extraction helpers).
 - Canonical and data-driven covariance generation.
 - C++ extension backend (`pymash._edcpp`) for performance-critical kernels.
@@ -43,4 +43,5 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - Project rebranded from `pymashr` to `pymash`.
 
+[0.2.0]: https://github.com/jschnable/pymash/releases/tag/v0.2.0
 [0.1.0]: https://github.com/jschnable/pymash/releases/tag/v0.1.0

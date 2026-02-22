@@ -41,7 +41,7 @@ def mash_plot_meta(
     except ModuleNotFoundError:
         raise ModuleNotFoundError(
             "matplotlib is required for plotting. "
-            "Install it with: pip install pymash[plot]"
+            "Install it with: pip install pymashrink[plot]"
         ) from None
 
     pm = get_pm(m)[i, :]

@@ -31,3 +31,6 @@ env/
 
 # OS/editor noise
 .DS_Store
+
+# Local reference docs
+MashRPaper.pdf
